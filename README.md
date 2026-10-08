@@ -170,7 +170,7 @@ Not built yet:
 
 ## Credits
 
-The approach comes from [jobleft](https://github.com/Blueturboguy07/jobleft): read the employers' own boards instead of scraping pages through a model, keep everything local, score with rules that can explain themselves, and treat sponsorship as a first-class fact. The posting-statement parser, the cap-exempt rule, the skill and job-title taxonomies, the board directory and the H-1B table are carried over from jobleft (MIT).
+The approach comes from [jobleft](https://github.com/Blueturboguy07/jobleft): read the employers' own boards instead of scraping pages through a model, keep everything local, score with rules that can explain themselves, and treat sponsorship as a first-class fact.
 
 The H-1B figures come from the US Department of Labor's public LCA disclosure files.
 
