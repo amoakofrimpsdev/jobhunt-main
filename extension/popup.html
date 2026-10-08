@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  body { width: 320px; margin: 0; padding: 18px; font: 14px/1.5 -apple-system, "Inter", "Segoe UI", sans-serif; color: #3a3a3a; background: #fffaf0; }
+  h1 { margin: 0 0 4px; font-size: 20px; font-weight: 500; letter-spacing: -0.03em; color: #0a0a0a; }
+  p { margin: 0 0 12px; }
+  .state { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 12px; background: #f5f0e0; color: #0a0a0a; font-weight: 500; margin-bottom: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #9a9a9a; flex: none; }
+  .ok .dot { background: #1a3a3a; } .warn .dot { background: #e8b94a; } .off .dot { background: #ff6b5a; }
+  input { width: 100%; box-sizing: border-box; height: 40px; padding: 0 12px; border-radius: 12px; border: 1px solid #e7e1d0; background: #fff; font: inherit; color: #0a0a0a; }
+  input:focus { outline: none; border-color: #0a0a0a; }
+  button { height: 40px; padding: 0 16px; border: 0; border-radius: 12px; background: #0a0a0a; color: #fff; font: 600 14px/1 inherit; cursor: pointer; }
+  button.quiet { background: #fff; color: #0a0a0a; border: 1px solid #e7e1d0; }
+  .row { display: flex; gap: 8px; margin-bottom: 12px; }
+  small { color: #6a6a6a; display: block; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <h1>Jobhunt</h1>
+  <div id="state" class="state"><span class="dot"></span><span id="state-text">Looking for Jobhunt…</span></div>
+  <div id="pair" hidden>
+    <p>Open Jobhunt, go to Settings, copy the pairing code and paste it here.</p>
+    <div class="row"><input id="code" placeholder="Pairing code" autocomplete="off" spellcheck="false"><button id="pair-go">Pair</button></div>
+  </div>
+  <div id="ready" hidden>
+    <p>On an application page a Jobhunt pill appears; click it and the panel opens beside the page. You can also open it here.</p>
+    <div class="row"><button id="side">Open side panel</button></div>
+    <p>On a site Jobhunt does not recognise, start it yourself:</p>
+    <div class="row"><button id="here" class="quiet">Use on this page</button><button id="unpair" class="quiet">Unpair</button></div>
+  </div>
+  <small>Your answers and resumes stay in the Jobhunt app on this computer. This extension talks only to that app, and never presses Submit.</small>
+  <script src="popup.js"></script>
+</body>
+</html>

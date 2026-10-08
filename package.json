@@ -1,0 +1,39 @@
+{
+  "name": "jobhunt",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "data": "node scripts/build-data.mjs",
+    "dmg": "bash scripts/build-dmg.sh"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.28.0",
+    "next": "16.2.12",
+    "pdf-parse": "^2.4.5",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@tauri-apps/cli": "^2.12.1",
+    "@types/node": "^24.19.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.12",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "description": "Jobs read straight from employers' boards, ranked against your profile, on your own computer.",
+  "engines": {
+    "node": ">=22.5"
+  }
+}

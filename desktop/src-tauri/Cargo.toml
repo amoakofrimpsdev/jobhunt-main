@@ -1,0 +1,24 @@
+[package]
+name = "jobhunt-shell"
+version = "0.2.0"
+description = "Jobhunt desktop shell: starts the local server beside it and opens the window"
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+
+[lib]
+name = "jobhunt_shell_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+# Apply links and LinkedIn searches open in the default browser: WKWebView swallows target=_blank without it.
+tauri-plugin-opener = "2"
+
+[profile.release]
+opt-level = "s"
+strip = true

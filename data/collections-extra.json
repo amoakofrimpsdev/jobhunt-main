@@ -1,0 +1,428 @@
+{
+ "note": "Collections added by hand. Quant firms: the employers openquant.co and quantbase.fyi list, each checked against the employer's own public board feed on 2026-10-07. Firms with their own careers site or Workday (Citadel, Two Sigma, D. E. Shaw, Millennium, BlackRock) have no feed Jobhunt can read.",
+ "collections": [
+  {
+   "id": "quant-firms",
+   "name": "Quant firms (OpenQuant, QuantBase)",
+   "url": "https://openquant.co/"
+  }
+ ],
+ "boards": [
+  {
+   "ats": "greenhouse",
+   "slug": "point72",
+   "name": "Point72",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "janestreet",
+   "name": "Jane Street",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "optiverus",
+   "name": "Optiver",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "imc",
+   "name": "IMC Trading",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "wehrtyou",
+   "name": "Hudson River Trading",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "jumptrading",
+   "name": "Jump Trading",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "towerresearchcapital",
+   "name": "Tower Research Capital",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "squarepointcapital",
+   "name": "Squarepoint Capital",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "akunacapital",
+   "name": "Akuna Capital",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "oldmissioncapital",
+   "name": "Old Mission Capital",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "flowtraders",
+   "name": "Flow Traders",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "dvtrading",
+   "name": "DV Trading",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "mavensecuritiesholdingltd",
+   "name": "Maven Securities",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "chicagotrading",
+   "name": "CTC Trading Group",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "engineersgate",
+   "name": "Engineers Gate",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "simplextrading",
+   "name": "Simplex Trading",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "exoduspoint",
+   "name": "ExodusPoint",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "grahamcapitalmanagement",
+   "name": "Graham Capital Management",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "worldquant",
+   "name": "WorldQuant",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "quberesearchandtechnologies",
+   "name": "Qube Research & Technologies",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "xtxmarketstechnologies",
+   "name": "XTX Markets",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "gsrmarkets",
+   "name": "GSR Markets",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "b2c2",
+   "name": "B2C2",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "aurosglobal",
+   "name": "Auros",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "selinicapital",
+   "name": "Selini Capital",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "grasshopperasia",
+   "name": "Grasshopper",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "transmarketgroup",
+   "name": "TransMarket Group",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "lever",
+   "slug": "wintermute-trading",
+   "name": "Wintermute",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "aqr",
+   "name": "AQR Capital Management",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "davinciderivatives",
+   "name": "Da Vinci Derivatives",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "mako",
+   "name": "Mako Trading",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "sparkland",
+   "name": "Sparkland",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "winton",
+   "name": "Winton",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "alphagrepsecurities",
+   "name": "Alphagrep",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "gravitonresearchcapital",
+   "name": "Graviton Research Capital",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "3redpartners",
+   "name": "3Red Partners",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "ashby",
+   "slug": "voleon",
+   "name": "Voleon",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "bridgewater89",
+   "name": "Bridgewater",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "aquaticcapitalmanagement",
+   "name": "Aquatic",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "capstoneinvestmentadvisors",
+   "name": "Capstone Investment Advisors",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "drweng",
+   "name": "DRW",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "fiveringsllc",
+   "name": "Five Rings Capital",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "gelbergroup",
+   "name": "Gelber Group",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "genevatrading",
+   "name": "Geneva Trading",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "kalshi",
+   "name": "Kalshi",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "pdtpartners",
+   "name": "PDT Partners",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "schonfeld",
+   "name": "Schonfeld",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "vaticlabs",
+   "name": "Vatic Labs",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "virtu",
+   "name": "Virtu Financial",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "walleyecapital-external-fulltime",
+   "name": "Walleye Capital",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "greenhouse",
+   "slug": "walleyecapital-external-students",
+   "name": "Walleye Capital (students)",
+   "in": [
+    "quant-firms"
+   ]
+  },
+  {
+   "ats": "lever",
+   "slug": "belvederetrading",
+   "name": "Belvedere Trading",
+   "in": [
+    "quant-firms"
+   ]
+  }
+ ]
+}

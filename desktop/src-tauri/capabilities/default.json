@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The main window shows the local server's pages. They get no app commands of their own; the opener plugin's link shim (target=_blank, window.open) is the only IPC, allowed from the server's loopback origin.",
+  "windows": ["main"],
+  "permissions": ["core:default", "opener:default"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*/*", "http://localhost:*/*"]
+  }
+}

@@ -1,0 +1,66 @@
+[
+  {
+    "name": "search_jobs",
+    "description": "Search the person's Jobhunt feed: open jobs read from employers' own boards, ranked against their profile. Returns up to `limit` jobs with match percent, pay, place, visa facts and each job's id.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string", "description": "Words to find in the title, company, place or department." },
+        "remote_only": { "type": "boolean" },
+        "us_only": { "type": "boolean", "description": "Leave out jobs located only outside the United States. Defaults to the person's profile setting." },
+        "h1b_filer_only": { "type": "boolean", "description": "Only employers with recent certified H-1B filings whose posting names no visa limit." },
+        "hide_visa_blockers": { "type": "boolean", "description": "Leave out postings that ask for citizenship or a clearance, or say they will not sponsor." },
+        "posted_within_days": { "type": "integer" },
+        "min_match": { "type": "integer", "description": "Lowest match percent, 0 to 100." },
+        "sort": { "type": "string", "enum": ["recommended", "score", "newest"] },
+        "limit": { "type": "integer", "description": "1 to 30, default 12." }
+      }
+    }
+  },
+  {
+    "name": "get_job",
+    "description": "Read one job in full: the posting text, the match breakdown with reasons, what the posting says about sponsorship, citizenship, clearance and E-Verify, which resume in the library fits it best, and that resume's text. Read this before writing anything for a job.",
+    "inputSchema": { "type": "object", "properties": { "job_id": { "type": "string" } }, "required": ["job_id"] }
+  },
+  {
+    "name": "get_profile",
+    "description": "The person's profile: target titles, skills, years, level and whether they need visa sponsorship.",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "list_resumes",
+    "description": "The resumes in the person's library, with each one's id, skills and titles.",
+    "inputSchema": { "type": "object", "properties": {} }
+  },
+  {
+    "name": "get_resume",
+    "description": "The full text of one resume from the library.",
+    "inputSchema": { "type": "object", "properties": { "resume_id": { "type": "string" } }, "required": ["resume_id"] }
+  },
+  {
+    "name": "save_document",
+    "description": "Save something you wrote for a job back into Jobhunt, where it appears on that job. Use only facts from the person's resume: the result lists any skill or figure the resume does not back up, and you should fix those and save again. kind is one of: fit (a short fit summary), resume (a tailored resume), cover (a cover letter), message (an outreach message).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "job_id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["fit", "resume", "cover", "message"] },
+        "content": { "type": "string", "description": "The full text, plain text or Markdown." }
+      },
+      "required": ["job_id", "kind", "content"]
+    }
+  },
+  {
+    "name": "update_tracker",
+    "description": "Move a job in the person's application tracker, or add a note to it. Only do this when the person asks.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "job_id": { "type": "string" },
+        "status": { "type": "string", "enum": ["saved", "applied", "interviewing", "offer", "rejected", "archived"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["job_id", "status"]
+    }
+  }
+]

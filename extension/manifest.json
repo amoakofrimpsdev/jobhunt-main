@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "Jobhunt",
+  "version": "0.3.0",
+  "description": "Fills job applications from your Jobhunt app on this computer, attaches the resume that fits best, and remembers the answers you type. It never submits.",
+  "icons": {
+    "16": "icons/16.png",
+    "32": "icons/32.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "action": {
+    "default_title": "Jobhunt",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.eu.lever.co/*",
+        "https://jobs.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.myworkdaysite.com/*",
+        "https://*.icims.com/*",
+        "https://*.smartrecruiters.com/*",
+        "https://apply.workable.com/*",
+        "https://*.bamboohr.com/*",
+        "https://*.jobvite.com/*",
+        "https://*.oraclecloud.com/*",
+        "https://*.taleo.net/*",
+        "https://*.recruitee.com/*",
+        "https://*.applytojob.com/*",
+        "https://*.breezy.hr/*",
+        "https://*.rippling.com/*"
+      ],
+      "js": [
+        "engine.js",
+        "view.js",
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "minimum_chrome_version": "116"
+}
