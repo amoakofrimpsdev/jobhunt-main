@@ -1,7 +1,6 @@
 // Reading a resume into a profile proposal with plain text rules: no model, nothing sent anywhere. The person
 // reviews and edits the proposal before it is saved.
 import { inflateRawSync } from "node:zlib";
-import { PDFParse } from "pdf-parse";
 import { levelOfYears } from "./parse/facts";
 import { familyOfTitle, scanSkills } from "./taxonomy";
 import { decodeEntities } from "./text";
@@ -39,6 +38,11 @@ export const RESUME_FILE = /\.(pdf|docx|txt|md)$/i;
 export async function resumeText(file: Buffer, filename: string): Promise<string> {
   if (/\.docx$/i.test(filename)) return docxText(file);
   if (/\.pdf$/i.test(filename)) {
+    // The PDF reader is loaded only when a PDF is read. Loaded at start it can stop the whole server: it looks for
+    // drawing classes that exist only where a canvas library is installed, which reading text never needs.
+    const g = globalThis as Record<string, unknown>;
+    for (const name of ["DOMMatrix", "ImageData", "Path2D"]) g[name] ??= class {};
+    const { PDFParse } = await import("pdf-parse");
     const parser = new PDFParse({ data: new Uint8Array(file) });
     try {
       return (await parser.getText()).text.trim();

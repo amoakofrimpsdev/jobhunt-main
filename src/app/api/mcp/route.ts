@@ -1,4 +1,5 @@
-import { connectorTokenOk, runTool } from "@/lib/connector";
+import { runTool } from "@/lib/connector";
+import { connectorTokenOk } from "@/lib/runfile";
 
 /** One connector tool call from the Claude Desktop connector, which reads this launch's token from run.json. */
 export async function POST(request: Request) {

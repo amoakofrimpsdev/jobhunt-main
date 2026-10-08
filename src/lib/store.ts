@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS jobs_board ON jobs (board_id, closed_at);
 CREATE INDEX IF NOT EXISTS jobs_open ON jobs (closed_at, posted_at);
+-- Everything the feed, its counts and the scorer read, in one index. A job's row also holds its whole posting, so
+-- reading tens of thousands of rows means reading hundreds of megabytes from disk; with this the rows are never
+-- touched until one job is opened.
+CREATE INDEX IF NOT EXISTS jobs_light ON jobs (closed_at, board_id, id, company, title, location, department, country,
+  posted_at, first_seen_at, blocker, work_model, level, years_min, family, h1b_filings, e_verify, cap_exempt, pay_min, skills);
 CREATE TABLE IF NOT EXISTS matches (
   job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
   score INTEGER NOT NULL,
@@ -155,7 +160,7 @@ const sqlite = process.getBuiltinModule("node:sqlite") as typeof import("node:sq
 type Row = Record<string, unknown>;
 // Bumped with every change to the tables, so a development server that keeps the database open across code reloads
 // brings it up to date instead of running new code against the old tables.
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const g = globalThis as unknown as { __jobhuntDb?: DatabaseSync; __jobhuntSchema?: number };
 
 /** The folder that holds the database and the resume files added to the app. */
@@ -170,7 +175,7 @@ export function db(): DatabaseSync {
     const dir = dataDir();
     mkdirSync(dir, { recursive: true });
     d = new sqlite.DatabaseSync(join(dir, "jobhunt.db"));
-    d.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
+    d.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA journal_size_limit = 33554432; PRAGMA cache_size = -65536;");
   }
   d.exec(SCHEMA);
   const columns = (d.prepare("PRAGMA table_info(boards)").all() as Array<{ name: string }>).map((c) => c.name);

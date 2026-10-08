@@ -1,6 +1,5 @@
 // The Claude Desktop connector, app side: where the connector finds the running app, the entry written into Claude
 // Desktop's own config when the person asks for it, and what each connector tool answers.
-import { randomBytes, timingSafeEqual } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -13,23 +12,6 @@ import { skillName } from "./taxonomy";
 import { DOCUMENT_LABEL, LEVEL_LABEL, TRACK_STATUSES, type DocumentKind, type JobCard, type TrackStatus } from "./types";
 
 type Args = Record<string, unknown>;
-type Run = { port: number; token: string; pid: number };
-const runFile = () => join(dataDir(), "run.json");
-const g = globalThis as unknown as { __jobhuntRun?: Run };
-
-/** Written at start: the port this server listens on and a token made for this launch, readable by this user only. */
-export function writeRunFile(): void {
-  const port = Number(process.env.PORT) || 3000;
-  g.__jobhuntRun = { port, token: randomBytes(24).toString("hex"), pid: process.pid };
-  mkdirSync(dataDir(), { recursive: true });
-  writeFileSync(runFile(), JSON.stringify(g.__jobhuntRun), { mode: 0o600 });
-}
-
-export function connectorTokenOk(token: string | null): boolean {
-  const mine = g.__jobhuntRun?.token;
-  if (!mine || !token || token.length !== mine.length) return false;
-  return timingSafeEqual(Buffer.from(token), Buffer.from(mine));
-}
 
 // ---------------------------------------------------------------- Claude Desktop's config
 
