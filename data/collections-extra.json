@@ -4,7 +4,8 @@
   {
    "id": "quant-firms",
    "name": "Quant firms (OpenQuant, QuantBase)",
-   "url": "https://openquant.co/"
+   "url": "https://openquant.co/",
+   "fixed": true
   }
  ],
  "boards": [

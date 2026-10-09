@@ -32,3 +32,8 @@ export function editDocument(id: number, content: string): void {
 export function removeDocument(id: number): void {
   db().prepare("DELETE FROM documents WHERE id = ?").run(id);
 }
+
+export function getDocument(id: number): JobDocument | null {
+  const r = db().prepare("SELECT * FROM documents WHERE id = ?").get(id) as Row | undefined;
+  return r ? toDocument(r) : null;
+}

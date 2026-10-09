@@ -1,5 +1,9 @@
 /** "manual" is not a provider: it marks jobs the person saved from a page in their browser. */
-export type Ats = "greenhouse" | "lever" | "ashby" | "manual";
+export type Ats = "greenhouse" | "lever" | "ashby" | "workday" | "workable" | "icims" | "oracle" | "jazzhr" | "bamboohr" | "manual";
+export const ATS_LABEL: Record<Ats, string> = {
+  greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workday: "Workday", workable: "Workable", icims: "iCIMS",
+  oracle: "Oracle", jazzhr: "JazzHR", bamboohr: "BambooHR", manual: "Browser",
+};
 export type WorkModel = "remote" | "hybrid" | "onsite";
 export type Level = "intern" | "entry" | "mid" | "senior" | "staff" | "manager" | "director" | "exec";
 export type PayPeriod = "year" | "month" | "hour";
@@ -57,6 +61,11 @@ export type Collection = {
   openJobs: number;
   /** Boards the collection lists on providers Jobhunt has no reader for, by provider. */
   notRead: Record<string, number>;
+  /** A fixed list with no site of its own to re-read for new employers. */
+  fixed: boolean;
+  /** When the collection's own site was last read for new employers, and what that found. */
+  lastCheckedAt: string | null;
+  lastResult: string | null;
 };
 
 export type Profile = {

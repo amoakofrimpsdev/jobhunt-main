@@ -46,6 +46,14 @@ export function jobIdForUrl(input: string): string | null {
   if (ghJid) return like(`greenhouse:%:${ghJid}`);
   if (host === "jobs.lever.co" && safe(parts[1])) return like(`lever:%:${parts[1]}`);
   if (host === "jobs.ashbyhq.com" && safe(parts[1])) return like(`ashby:%:${parts[1]}`);
+  // The other providers put the posting's own id in the address.
+  const tail = (re: RegExp) => safe(re.exec(u.pathname)?.[1]);
+  if (/\.myworkday(?:jobs|site)\.com$/.test(host) && parts.includes("job") && safe(parts[parts.length - 1])) return like(`workday:%:${parts[parts.length - 1]}`);
+  if (host.endsWith(".icims.com") && tail(/\/jobs\/(\d+)\//)) return like(`icims:%:${tail(/\/jobs\/(\d+)\//)}`);
+  if (host.endsWith(".applytojob.com") && tail(/\/apply\/([A-Za-z0-9]{6,20})/)) return like(`jazzhr:%:${tail(/\/apply\/([A-Za-z0-9]{6,20})/)}`);
+  if (host.endsWith(".bamboohr.com") && tail(/\/careers\/(\d+)/)) return like(`bamboohr:%:${tail(/\/careers\/(\d+)/)}`);
+  if (host === "apply.workable.com" && tail(/\/j\/([A-Za-z0-9]+)/)) return like(`workable:%:${tail(/\/j\/([A-Za-z0-9]+)/)}`);
+  if (host.endsWith(".oraclecloud.com") && tail(/\/job\/(\d+)/)) return like(`oracle:%:${tail(/\/job\/(\d+)/)}`);
   const plain = `${u.origin}${u.pathname}`.replace(/\/(?:apply|application)\/?$/, "").replace(/\/$/, "");
   const row = d.prepare("SELECT id FROM jobs WHERE url = ? OR url = ? OR apply_url = ? LIMIT 1").get(plain, `${plain}/`, input) as { id: string } | undefined;
   return row?.id ?? null;

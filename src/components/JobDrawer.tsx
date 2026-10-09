@@ -196,7 +196,7 @@ function Drawer({ id, onClose, onChanged }: { id: string; onClose: () => void; o
                 </div>
               </section>
 
-              <JobWriting jobId={job.id} company={job.company} />
+              <JobWriting jobId={job.id} />
 
               <section className="mt-6">
                 <h3 className="eyebrow text-muted">Your notes</h3>

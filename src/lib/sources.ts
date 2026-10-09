@@ -1,32 +1,8 @@
 // Readers for the three job boards that publish a documented public feed: Greenhouse, Lever and Ashby. One request
 // returns an employer's whole board, straight from the employer, so a posting that is gone from the reply is closed.
+import { arr, getJson, iso, num, obj, str } from "./http";
+import { fetchOther, isSlowAts } from "./sources-more";
 import type { Ats, PayPeriod, RawJob, WorkModel } from "./types";
-
-const USER_AGENT = "jobhunt/0.2 (personal job search; no personal data)";
-const nextSlot = new Map<string, number>();
-
-/** GET JSON, at most one request a second per host. */
-async function getJson(url: string): Promise<unknown> {
-  const host = new URL(url).host;
-  const at = Math.max(Date.now(), nextSlot.get(host) ?? 0);
-  nextSlot.set(host, at + 1000);
-  if (at > Date.now()) await new Promise((r) => setTimeout(r, at - Date.now()));
-  const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(45_000), cache: "no-store" });
-  if (res.status === 404) throw new Error("The board was not found (404). The employer may have moved to another provider.");
-  if (!res.ok) throw new Error(`The board answered ${res.status}.`);
-  return res.json();
-}
-
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
-const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
-const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-
-function iso(v: unknown): string | null {
-  if (typeof v !== "string" && typeof v !== "number") return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
 
 function workplace(v: string): WorkModel | null {
   const k = v.toLowerCase().replace(/[^a-z]/g, "");
@@ -142,12 +118,24 @@ async function ashby(slug: string, company: string): Promise<RawJob[]> {
   });
 }
 
-export function fetchBoard(ats: Ats, slug: string, company: string): Promise<RawJob[]> {
-  if (ats === "greenhouse") return greenhouse(slug, company);
-  if (ats === "lever") return lever(slug, company);
-  if (ats === "ashby") return ashby(slug, company);
-  throw new Error("Jobs saved from the browser have no board to read.");
+/** One board's postings. `seenIds` are postings that are still listed but were not read again (their text is already
+ *  held); `partial` means the list could not be read whole, so nothing may be closed for being absent from it. */
+export type Listing = { jobs: RawJob[]; seenIds: string[]; partial: boolean };
+
+/**
+ * Reads one board. `known` holds the ids of postings whose full text is already in the database: the readers that
+ * need one request per posting skip those.
+ */
+export async function fetchBoard(ats: Ats, slug: string, company: string, known: Set<string> = new Set()): Promise<Listing> {
+  const whole = (jobs: RawJob[]): Listing => ({ jobs, seenIds: [], partial: false });
+  if (ats === "greenhouse") return whole(await greenhouse(slug, company));
+  if (ats === "lever") return whole(await lever(slug, company));
+  if (ats === "ashby") return whole(await ashby(slug, company));
+  if (ats === "manual") throw new Error("Jobs saved from the browser have no board to read.");
+  return fetchOther(ats, slug, company, known);
 }
+
+export { isSlowAts };
 
 /** The board a careers link points at ("https://jobs.lever.co/acme/123" -> lever, acme), or null. */
 export function detectBoard(input: string): { ats: Exclude<Ats, "manual">; slug: string } | null {
@@ -168,6 +156,24 @@ export function detectBoard(input: string): { ats: Exclude<Ats, "manual">; slug:
   if (host === "jobs.ashbyhq.com" || host === "api.ashbyhq.com") {
     const slug = ok(host === "api.ashbyhq.com" ? parts[2] : parts[0]);
     return slug ? { ats: "ashby", slug } : null;
+  }
+  // Workday: https://<company>.wdN.myworkdayjobs.com/[en-US/]<site>/job/... reads "<company>.wdN.<site>".
+  const wd = /^([a-z0-9][a-z0-9-]*)\.(wd\d+)\.myworkday(?:jobs|site)\.com$/.exec(host);
+  if (wd) {
+    const site = ok(parts.find((p) => !/^[a-z]{2}(?:-[A-Za-z]{2})?$/.test(p) && p !== "wday" && p !== "cxs" && p !== "recruiting"));
+    return site && site !== "job" && site.toLowerCase() !== wd[1] ? { ats: "workday", slug: `${wd[1]}.${wd[2]}.${site.toLowerCase()}` } : null;
+  }
+  if (host === "apply.workable.com") {
+    const slug = ok(parts[0] === "api" ? parts[4] : parts[0]);
+    return slug && slug !== "j" ? { ats: "workable", slug } : null;
+  }
+  const sub = /^([a-z0-9][a-z0-9-]*)\.(icims\.com|applytojob\.com|bamboohr\.com)$/.exec(host);
+  if (sub && sub[1] !== "www" && sub[1] !== "app") return { ats: sub[2] === "icims.com" ? "icims" : sub[2] === "applytojob.com" ? "jazzhr" : "bamboohr", slug: sub[1] };
+  // Oracle Recruiting: https://<host>.oraclecloud.com/hcmUI/CandidateExperience/<lang>/sites/<site>/...
+  if (host.endsWith(".oraclecloud.com")) {
+    const at = parts.indexOf("sites");
+    const site = ok(at >= 0 ? parts[at + 1] : undefined);
+    return site && /\.fa(?:\.|$)/.test(host.replace(/\.oraclecloud\.com$/, "")) ? { ats: "oracle", slug: `${host.replace(/\.oraclecloud\.com$/, "")}.${site.toLowerCase()}` } : null;
   }
   return null;
 }

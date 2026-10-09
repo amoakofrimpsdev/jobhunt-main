@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Search, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
+import { ArrowRight, Search, ShieldCheck, SlidersHorizontal, X, BellPlus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JobCard } from "@/components/JobCard";
 import { JobDrawer } from "@/components/JobDrawer";
@@ -86,6 +86,17 @@ export default function Home() {
   const [limit, setLimit] = useState(PAGE);
   const [open, setOpen] = useState<string | null>(null);
   const [moreFilters, setMoreFilters] = useState(false);
+  const [alertName, setAlertName] = useState<string | null>(null);
+  const [alertSaved, setAlertSaved] = useState(false);
+
+  async function saveAlert() {
+    if (alertName === null) return;
+    await api("/api/alerts", { method: "POST", body: JSON.stringify({ name: alertName.trim() || filters.q.trim() || "My alert", params: query(filters, PAGE) }) });
+    setAlertName(null);
+    setAlertSaved(true);
+    window.dispatchEvent(new Event("jobhunt:alerts-changed"));
+    setTimeout(() => setAlertSaved(false), 6000);
+  }
   const autoStarted = useRef(false);
 
   useEffect(() => {
@@ -93,7 +104,17 @@ export default function Home() {
     const t = setTimeout(() => {
       try {
         const saved = JSON.parse(localStorage.getItem(STORE_KEY) ?? "null") as Partial<Filters> | null;
-        if (saved) setFilters({ ...DEFAULTS, ...saved, q: "" });
+        const p = new URLSearchParams(window.location.search);
+        if ([...p.keys()].length) {
+          // Opened from an alert: the address carries the filters.
+          const list = (k: string) => (p.get(k) ?? "").split(",").filter(Boolean);
+          setFilters({
+            ...DEFAULTS, q: p.get("q") ?? "", work: list("work") as WorkModel[], level: list("level") as Level[], minScore: Number(p.get("minScore")) || 0,
+            h1b: p.get("h1b") === "1", everify: p.get("everify") === "1", capExempt: p.get("capExempt") === "1", pay: p.get("pay") === "1",
+            us: p.has("us") ? p.get("us") === "1" : null, hideBlocked: p.has("hideBlocked") ? p.get("hideBlocked") === "1" : null,
+          });
+          window.history.replaceState(null, "", "/");
+        } else if (saved) setFilters({ ...DEFAULTS, ...saved, q: "" });
       } catch {
         // Unreadable saved filters fall back to the defaults.
       }
@@ -195,7 +216,19 @@ export default function Home() {
           <button className="btn btn-secondary !h-11" onClick={() => setMoreFilters((v) => !v)} aria-expanded={moreFilters}>
             <SlidersHorizontal size={15} /> Filters{active > 0 && <span className="rounded-full bg-ink px-1.5 py-0.5 text-[11px] text-white">{active}</span>}
           </button>
+          <button className="btn btn-secondary !h-11" onClick={() => setAlertName(alertName === null ? filters.q.trim() : null)} aria-expanded={alertName !== null} title="Be told when new jobs match these filters">
+            <BellPlus size={15} /> Save as alert
+          </button>
         </div>
+        {alertName !== null && (
+          <form className="mt-3 flex animate-rise flex-wrap items-center gap-2 rounded-lg bg-lavender p-4 text-ink" onSubmit={(e) => { e.preventDefault(); void saveAlert(); }}>
+            <span className="text-[13px] font-semibold">Tell me when new jobs match the search and filters above. Name it:</span>
+            <input className="field !h-10 max-w-xs" autoFocus value={alertName} onChange={(e) => setAlertName(e.target.value)} placeholder="Remote data analyst, H-1B filers" aria-label="Alert name" />
+            <button className="btn btn-primary !h-10">Save alert</button>
+            <button type="button" className="btn btn-quiet !h-10" onClick={() => setAlertName(null)}>Cancel</button>
+          </form>
+        )}
+        {alertSaved && <p className="mt-3 text-[13px] text-ink" role="status">Alert saved. New matches show up on the <Link href="/alerts" className="font-semibold underline">Alerts</Link> page after each refresh.</p>}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Toggle on={usOnly} onClick={() => set({ us: !usOnly })}>United States</Toggle>
           <Toggle on={filters.work.includes("remote")} onClick={() => set({ work: flip(filters.work, "remote") })}>Remote</Toggle>

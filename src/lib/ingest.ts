@@ -3,8 +3,8 @@ import { capExemptLikely, h1bFilings } from "./company";
 import { scoreJob, scorerFor } from "./match";
 import { countryOf, employmentTypeOf, levelOfTitle, levelOfYears, payFromText, workModelOf, yearsRequired } from "./parse/facts";
 import { parseStatements, visaBlocker } from "./parse/statements";
-import { fetchBoard } from "./sources";
-import { getMeta, getProfile, jobsForScoring, listBoards, profileReady, recordBoardRun, saveBoardListing, saveMatches, setMeta, type JobRow } from "./store";
+import { fetchBoard, isSlowAts } from "./sources";
+import { getMeta, getProfile, jobsForScoring, listBoards, profileReady, recordBoardRun, saveBoardListing, saveMatches, setMeta, type JobRow, heldPostingIds } from "./store";
 import { familyOfTitle, scanSkills } from "./taxonomy";
 import { htmlToText, sanitizeHtml } from "./text";
 import type { Board, Match, RawJob } from "./types";
@@ -65,6 +65,9 @@ export function rescore(): number {
   return out.length;
 }
 
+const SLOW_EVERY_MS = 20 * 3_600_000;
+const SLOW_AT_ONCE = 8;
+
 export type RefreshStatus = {
   running: boolean;
   startedAt: string | null;
@@ -91,7 +94,9 @@ export function refreshStatus(): RefreshStatus {
 /** Starts reading the given boards (default: every enabled board) and returns at once; refreshStatus() follows it. */
 export function startRefresh(boardIds?: number[]): RefreshStatus {
   if (g.__jobhuntRefresh?.running) return g.__jobhuntRefresh;
-  const boards = listBoards().filter((b) => b.ats !== "manual" && (boardIds ? boardIds.includes(b.id) : b.active));
+  // The providers that need a request per posting are read once a day; asking for a board by name always reads it.
+  const due = (b: Board) => !isSlowAts(b.ats) || b.lastOk !== true || !b.lastRunAt || Date.now() - Date.parse(b.lastRunAt) > SLOW_EVERY_MS;
+  const boards = listBoards().filter((b) => b.ats !== "manual" && (boardIds ? boardIds.includes(b.id) : b.active && due(b)));
   const status: RefreshStatus = { ...IDLE, running: true, startedAt: new Date().toISOString(), total: boards.length };
   g.__jobhuntRefresh = status;
 
@@ -99,7 +104,8 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
   const readBoard = async (b: Board) => {
     status.current = b.name;
     try {
-      const raw = await fetchBoard(b.ats, b.slug, b.name);
+      const listing = await fetchBoard(b.ats, b.slug, b.name, isSlowAts(b.ats) ? heldPostingIds(b) : undefined);
+      const raw = listing.jobs;
       // Reading a posting's facts is plain computing: a pause every few postings lets the screens be answered
       // while a large board is being read.
       const rows: JobRow[] = [];
@@ -107,7 +113,7 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
         if (j.title && j.url) rows.push(toJobRow(b, j));
         if (rows.length % 25 === 0) await new Promise((r) => setImmediate(r));
       }
-      const result = saveBoardListing(b.id, rows);
+      const result = saveBoardListing(b.id, rows, !listing.partial, listing.seenIds.map((id) => `${b.ats}:${b.slug}:${id}`));
       status.added += result.added;
       status.closed += result.closed;
       recordBoardRun(b.id, true, null);
@@ -118,21 +124,42 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
     }
     status.done++;
     // Scoring everything takes a moment once there are many jobs, so it runs every half minute while boards arrive.
-    if (Date.now() - lastScored > 30_000) { rescore(); lastScored = Date.now(); }
+    if (Date.now() - lastScored > 30_000) {
+      rescore();
+      lastScored = Date.now();
+      // A full read can take hours now that some providers need a request per posting: alerts do not wait for its end.
+      void import("./alerts").then((m) => m.runAlerts()).catch(() => undefined);
+    }
   };
 
-  // One board at a time per provider (each is one host, read at one request a second); the providers run side by side.
+  // A provider that serves every employer from one host is read one board at a time (one request a second to that
+  // host); the providers run side by side. Where each employer has a host of its own, several boards are read at
+  // once, each still at one request a second.
   const queues = new Map<string, Board[]>();
-  for (const b of boards) queues.set(b.ats, [...(queues.get(b.ats) ?? []), b]);
-  void Promise.all([...queues.values()].map(async (queue) => { for (const b of queue) await readBoard(b); }))
+  const perEmployer: Board[] = [];
+  for (const b of boards) {
+    if (isSlowAts(b.ats)) perEmployer.push(b);
+    else queues.set(b.ats, [...(queues.get(b.ats) ?? []), b]);
+  }
+  const workers = [...queues.values()].map(async (queue) => { for (const b of queue) await readBoard(b); });
+  for (let i = 0; i < SLOW_AT_ONCE; i++) workers.push((async () => { for (let b = perEmployer.shift(); b; b = perEmployer.shift()) await readBoard(b); })());
+  void Promise.all(workers)
     .catch(() => undefined)
     .then(() => {
       rescore();
+      // Alerts look at what this run brought in, after it has been scored.
+      void import("./alerts").then((m) => m.runAlerts()).catch(() => undefined);
       status.running = false;
       status.current = null;
       status.finishedAt = new Date().toISOString();
       setMeta("refresh", status);
-      if (!boardIds) setMeta("lastFullRefresh", status.finishedAt);
+      if (!boardIds) {
+        setMeta("lastFullRefresh", status.finishedAt);
+        // Once a week each collection's own site is read for employers it has added; their boards are then read.
+        void import("./collections").then((m) => m.checkDueCollections()).then((added) => {
+          if (added > 0) startRefresh(listBoards().filter((b) => b.active && !b.lastRunAt).map((b) => b.id));
+        }).catch(() => undefined);
+      }
     });
   return status;
 }

@@ -105,6 +105,29 @@ CREATE TABLE IF NOT EXISTS answers (
   uses INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL
 );
+-- Pages of a collection's own site that have been read, so a weekly check opens only pages that are new.
+CREATE TABLE IF NOT EXISTS collection_pages (
+  collection_id TEXT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  page TEXT NOT NULL,
+  board TEXT,
+  checked_at TEXT NOT NULL,
+  PRIMARY KEY (collection_id, page)
+);
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  filter TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  last_run_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS alert_hits (
+  alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+  job_id TEXT NOT NULL,
+  found_at TEXT NOT NULL,
+  seen INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (alert_id, job_id)
+);
 CREATE TABLE IF NOT EXISTS resumes (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -160,7 +183,7 @@ const sqlite = process.getBuiltinModule("node:sqlite") as typeof import("node:sq
 type Row = Record<string, unknown>;
 // Bumped with every change to the tables, so a development server that keeps the database open across code reloads
 // brings it up to date instead of running new code against the old tables.
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const g = globalThis as unknown as { __jobhuntDb?: DatabaseSync; __jobhuntSchema?: number };
 
 /** The folder that holds the database and the resume files added to the app. */
@@ -180,6 +203,8 @@ export function db(): DatabaseSync {
   d.exec(SCHEMA);
   const columns = (d.prepare("PRAGMA table_info(boards)").all() as Array<{ name: string }>).map((c) => c.name);
   if (!columns.includes("direct")) d.exec("ALTER TABLE boards ADD COLUMN direct INTEGER NOT NULL DEFAULT 1");
+  const collectionColumns = (d.prepare("PRAGMA table_info(collections)").all() as Array<{ name: string }>).map((c) => c.name);
+  if (!collectionColumns.includes("fixed")) d.exec("ALTER TABLE collections ADD COLUMN fixed INTEGER NOT NULL DEFAULT 0; ALTER TABLE collections ADD COLUMN last_checked_at TEXT; ALTER TABLE collections ADD COLUMN last_result TEXT;");
   d.exec(ACTIVE_VIEW);
   const count = d.prepare("SELECT COUNT(*) AS n FROM boards").get() as { n: number };
   if (count.n === 0) {
@@ -217,13 +242,14 @@ export function directory(): DirectoryBoard[] {
 }
 
 type CollectionsFile = {
-  collections: Array<{ id: string; name: string; url: string; notRead: Record<string, number> }>;
+  collections: Array<{ id: string; name: string; url: string; notRead: Record<string, number>; fixed?: boolean }>;
   boards: Array<{ ats: Ats; slug: string; name: string; in: string[] }>;
 };
 
 /**
- * Follows each collection that ships with the app (data/collections.json), once. A collection the person removed, or
- * a board they removed from one, is not brought back by the next launch.
+ * Follows the collections that ship with the app (data/collections.json). Each board of each collection is added
+ * once: a board the person removed, or a collection they removed, is not brought back by the next launch, while
+ * boards that a newer version of the file adds do arrive.
  */
 function seedCollections(d: DatabaseSync): void {
   let file: CollectionsFile;
@@ -233,24 +259,67 @@ function seedCollections(d: DatabaseSync): void {
     return;
   }
   const seeded = new Set(getMeta<string[]>("collectionsSeeded", []));
+  const seenBoards = new Set(getMeta<string[]>("collectionBoardsSeen", []));
+  const key = (collection: string, b: { ats: string; slug: string }) => `${collection}|${b.ats}:${b.slug.toLowerCase()}`;
+  const todo = file.boards.flatMap((b) => b.in.map((c) => ({ b, c }))).filter(({ b, c }) => !seenBoards.has(key(c, b)));
   const fresh = file.collections.filter((c) => !seeded.has(c.id));
-  if (!fresh.length) return;
-  const wanted = new Set(fresh.map((c) => c.id));
   transaction(() => {
-    const addCollection = d.prepare("INSERT OR IGNORE INTO collections (id, name, url, enabled, not_read) VALUES (?, ?, ?, 1, ?)");
-    for (const c of fresh) addCollection.run(c.id, c.name, c.url, JSON.stringify(c.notRead ?? {}));
+    const addCollection = d.prepare("INSERT OR IGNORE INTO collections (id, name, url, enabled, not_read, fixed) VALUES (?, ?, ?, 1, ?, ?)");
+    for (const c of fresh) addCollection.run(c.id, c.name, c.url, JSON.stringify(c.notRead ?? {}), c.fixed || !c.url ? 1 : 0);
+    // The counts of boards that cannot be read change when the app learns a new provider.
+    const refresh = d.prepare("UPDATE collections SET not_read = ?, fixed = ? WHERE id = ?");
+    for (const c of file.collections) refresh.run(JSON.stringify(c.notRead ?? {}), c.fixed || !c.url ? 1 : 0, c.id);
+    const exists = new Set((d.prepare("SELECT id FROM collections").all() as Array<{ id: string }>).map((r) => r.id));
     const addBoard = d.prepare("INSERT OR IGNORE INTO boards (ats, slug, name, enabled, direct) VALUES (?, ?, ?, 1, 0)");
     const idOf = d.prepare("SELECT id FROM boards WHERE ats = ? AND slug = ? COLLATE NOCASE");
     const link = d.prepare("INSERT OR IGNORE INTO board_collections (board_id, collection_id) VALUES (?, ?)");
-    for (const b of file.boards) {
-      const mine = b.in.filter((id) => wanted.has(id));
-      if (!mine.length) continue;
+    for (const { b, c } of todo) {
+      // A collection the person removed stays removed.
+      if (!exists.has(c)) continue;
       let row = idOf.get(b.ats, b.slug) as { id: number } | undefined;
       if (!row) { addBoard.run(b.ats, b.slug, b.name); row = idOf.get(b.ats, b.slug) as { id: number }; }
-      for (const id of mine) link.run(row.id, id);
+      link.run(row.id, c);
     }
   });
-  setMeta("collectionsSeeded", [...seeded, ...wanted]);
+  if (fresh.length) setMeta("collectionsSeeded", [...seeded, ...fresh.map((c) => c.id)]);
+  if (todo.length) setMeta("collectionBoardsSeen", [...seenBoards, ...todo.map(({ b, c }) => key(c, b))]);
+}
+
+/** Adds a board a collection's own site was found to list. Returns true when the board is new to the collection. */
+export function addCollectionBoard(collectionId: string, ats: Ats, slug: string, name: string): boolean {
+  const d = db();
+  d.prepare("INSERT OR IGNORE INTO boards (ats, slug, name, enabled, direct) VALUES (?, ?, ?, 1, 0)").run(ats, slug, name);
+  const row = d.prepare("SELECT id FROM boards WHERE ats = ? AND slug = ? COLLATE NOCASE").get(ats, slug) as { id: number };
+  return Number(d.prepare("INSERT OR IGNORE INTO board_collections (board_id, collection_id) VALUES (?, ?)").run(row.id, collectionId).changes) > 0;
+}
+
+export function addCollection(id: string, name: string, url: string): void {
+  db().prepare("INSERT OR IGNORE INTO collections (id, name, url, enabled, not_read, fixed) VALUES (?, ?, ?, 1, '{}', 0)").run(id, name, url);
+}
+
+export function removeCollection(id: string): void {
+  const d = db();
+  // Boards followed only through this collection go with it, unless a tracked job or a document hangs on them.
+  d.prepare(`DELETE FROM boards WHERE direct = 0 AND id IN (SELECT board_id FROM board_collections WHERE collection_id = ?)
+    AND id NOT IN (SELECT board_id FROM board_collections WHERE collection_id != ?)
+    AND id NOT IN (SELECT board_id FROM jobs WHERE id IN (SELECT job_id FROM applications) OR id IN (SELECT job_id FROM documents))`).run(id, id);
+  d.prepare("DELETE FROM collections WHERE id = ?").run(id);
+}
+
+export function recordCollectionCheck(id: string, result: string, done: boolean): void {
+  db().prepare("UPDATE collections SET last_result = ?, last_checked_at = CASE WHEN ? THEN ? ELSE last_checked_at END WHERE id = ?")
+    .run(result, done ? 1 : 0, new Date().toISOString(), id);
+}
+
+/** The pages of a collection's site that were already read, with the board each one led to ("" = none). */
+export function collectionPages(id: string): Map<string, string> {
+  const rows = db().prepare("SELECT page, board FROM collection_pages WHERE collection_id = ?").all(id) as Array<{ page: string; board: string | null }>;
+  return new Map(rows.map((r) => [r.page, r.board ?? ""]));
+}
+
+export function saveCollectionPage(id: string, page: string, board: string): void {
+  db().prepare("INSERT INTO collection_pages (collection_id, page, board, checked_at) VALUES (?, ?, ?, ?) ON CONFLICT (collection_id, page) DO UPDATE SET board = excluded.board, checked_at = excluded.checked_at")
+    .run(id, page, board, new Date().toISOString());
 }
 
 export function listCollections(): Collection[] {
@@ -262,6 +331,7 @@ export function listCollections(): Collection[] {
   return rows.map((r) => ({
     id: r.id as string, name: r.name as string, url: r.url as string, enabled: r.enabled === 1,
     boards: r.boards as number, openJobs: r.open_jobs as number, notRead: JSON.parse(r.not_read as string) as Record<string, number>,
+    fixed: r.fixed === 1, lastCheckedAt: r.last_checked_at as string | null, lastResult: r.last_result as string | null,
   }));
 }
 
@@ -351,7 +421,14 @@ export type JobRow = {
  * Writes one board's whole listing. A posting that was there before and is not in this listing is closed; a posting
  * that comes back is reopened. Call only with a listing that was read in full.
  */
-export function saveBoardListing(boardId: number, jobs: JobRow[], closeMissing = true): { added: number; closed: number } {
+/** The ids (as the board gives them) of one board's postings whose full text is already held. */
+export function heldPostingIds(board: Pick<Board, "id" | "ats" | "slug">): Set<string> {
+  const prefix = `${board.ats}:${board.slug}:`;
+  const rows = db().prepare("SELECT id FROM jobs WHERE board_id = ? AND description_html != ''").all(board.id) as Array<{ id: string }>;
+  return new Set(rows.filter((r) => r.id.startsWith(prefix)).map((r) => r.id.slice(prefix.length)));
+}
+
+export function saveBoardListing(boardId: number, jobs: JobRow[], closeMissing = true, stillListed: string[] = []): { added: number; closed: number } {
   const d = db();
   const now = new Date().toISOString();
   const known = new Set((d.prepare("SELECT id FROM jobs WHERE board_id = ?").all(boardId) as Array<{ id: string }>).map((r) => r.id));
@@ -383,6 +460,9 @@ export function saveBoardListing(boardId: number, jobs: JobRow[], closeMissing =
         j.eVerify === null ? null : j.eVerify ? 1 : 0, j.blocker, j.blockerText, JSON.stringify(j.evidence),
         j.h1bFilings, j.capExempt ? 1 : 0);
     }
+    // Postings that are still on the board but were not read again: they stay open, and one that had closed reopens.
+    const touch = d.prepare("UPDATE jobs SET last_seen_at = ?, closed_at = NULL WHERE id = ?");
+    for (const id of stillListed) { if (!seen.has(id)) { seen.add(id); touch.run(now, id); } }
     const close = d.prepare("UPDATE jobs SET closed_at = ? WHERE id = ? AND closed_at IS NULL");
     let closed = 0;
     if (closeMissing) for (const id of known) if (!seen.has(id)) closed += Number(close.run(now, id).changes);
@@ -441,10 +521,47 @@ export type FeedFilter = {
   capExemptOnly?: boolean;
   payListed?: boolean;
   minScore?: number;
+  /** Only jobs Jobhunt first saw after this moment (alerts). */
+  firstSeenAfter?: string;
   sort?: "recommended" | "newest" | "score";
   limit?: number;
   offset?: number;
 };
+
+/**
+ * A filter as the feed's address carries it ("q=analyst&work=remote&h1b=1"). The two filters the person has not set
+ * themselves follow the profile.
+ */
+export function filterFromParams(p: URLSearchParams, profile: Profile): FeedFilter {
+  const list = (k: string) => (p.get(k) ?? "").split(",").filter(Boolean);
+  const on = (k: string) => p.get(k) === "1";
+  const sort = p.get("sort");
+  return {
+    q: p.get("q") ?? "",
+    workModels: list("work"),
+    levels: list("level"),
+    postedWithinDays: Number(p.get("days")) || undefined,
+    usOnly: p.has("us") ? on("us") : profile.usOnly,
+    hideBlocked: p.has("hideBlocked") ? on("hideBlocked") : profile.needsSponsorship,
+    h1bOnly: on("h1b"),
+    eVerifyOnly: on("everify"),
+    capExemptOnly: on("capExempt"),
+    payListed: on("pay"),
+    minScore: Number(p.get("minScore")) || undefined,
+    sort: sort === "newest" || sort === "score" ? sort : "recommended",
+    limit: Math.min(400, Number(p.get("limit")) || 40),
+    offset: Number(p.get("offset")) || 0,
+  };
+}
+
+/** Job cards by id, in the order given. */
+export function cardsById(ids: string[]): JobCard[] {
+  if (!ids.length) return [];
+  const rows = db().prepare(`SELECT ${CARD_COLUMNS} FROM jobs j LEFT JOIN matches m ON m.job_id = j.id
+    LEFT JOIN applications a ON a.job_id = j.id WHERE j.id IN (${ids.map(() => "?").join(",")})`).all(...ids) as Row[];
+  const byId = new Map(rows.map((r) => [r.id as string, card(r)]));
+  return ids.map((id) => byId.get(id)).filter((j): j is JobCard => j !== undefined);
+}
 
 export type Feed = { total: number; jobs: JobCard[]; openJobs: number; newToday: number; strong: number; blocked: number; employers: number };
 
@@ -465,6 +582,7 @@ export function feed(f: FeedFilter): Feed {
   };
   inList("j.work_model", f.workModels);
   inList("j.level", f.levels);
+  if (f.firstSeenAfter) { where.push("j.first_seen_at > ?"); args.push(f.firstSeenAfter); }
   if (f.postedWithinDays) {
     where.push("COALESCE(j.posted_at, j.first_seen_at) >= ?");
     args.push(new Date(Date.now() - f.postedWithinDays * DAY).toISOString());

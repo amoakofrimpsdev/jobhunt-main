@@ -45,7 +45,7 @@ async function handle(msg) {
       return reply({
         protocolVersion: typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : PROTOCOL,
         capabilities: { tools: {} },
-        serverInfo: { name: "jobhunt", version: "0.2.0" },
+        serverInfo: { name: "jobhunt", version: "0.3.0" },
         instructions: "Jobhunt is the person's local job-search app. Search their jobs, read postings, their profile and resumes, and save what you write for a job back with save_document. Use only facts from their resume. Jobhunt must be open on the Mac.",
       });
     case "ping":

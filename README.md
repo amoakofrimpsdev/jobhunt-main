@@ -8,13 +8,14 @@ No account, no database server, no AI key. Your profile, resumes, answers and tr
 
 ## What it does
 
-- **Reads jobs from the source.** About 1,340 employer boards on Greenhouse, Lever and Ashby, one polite request each. Around 79,000 open jobs on a full read. No aggregators, and a posting that closes drops out on the next read.
+- **Reads jobs from the source.** About 2,400 employer boards on Greenhouse, Lever, Ashby, Workday, Workable, iCIMS, Oracle, JazzHR and BambooHR. No aggregators, and a posting that closes drops out on the next read.
 - **Ranks them for you.** A match percent built from role, skills and level, with the reason for every number. No model involved: the same profile and posting always give the same score.
 - **Knows about work authorization.** Marks employers with recent H-1B filings, likely cap-exempt employers and E-Verify employers, and catches postings that ask for citizenship or a clearance or say they will not sponsor, quoting the posting's own words.
 - **Picks the resume.** Keep several resumes (or point it at a folder). Each job shows which one fits best and why.
 - **Finds the people.** One click opens a LinkedIn search for your connections at the company, friends of friends, recruiters, or the likely hiring manager.
 - **Fills applications.** A Chrome extension fills the form, attaches the right resume, and remembers what you type so the next form needs less of you. It never presses Submit.
 - **Writes with AI, if you want it.** Explain your fit, tailor a resume, draft a cover letter or an outreach message, using a model on your own machine, your own API key, or Claude Desktop.
+- **Alerts you.** Save any search as an alert. New jobs that match show up on the Alerts page and as a notification on your Mac.
 - **Tracks applications.** Saved, Applied, Interviewing, Offer, Rejected, with notes.
 
 ## Quick start
@@ -30,7 +31,7 @@ npm run dev
 
 Open http://localhost:3000.
 
-1. The first visit reads the employer boards. It takes about ten minutes for all of them, and jobs appear as each board answers.
+1. The first visit reads the employer boards, and jobs appear as each board answers. Greenhouse, Lever, Ashby and Workable boards are done in about ten minutes. Workday, iCIMS, Oracle, JazzHR and BambooHR need a request per posting, so their first read runs on in the background for a few hours.
 2. Open **Profile**. Add a resume (PDF, Word or text) or type a target title and a few skills, then press **Save and score jobs**.
 3. Go back to **Jobs**. The feed is now ranked for you.
 
@@ -82,7 +83,7 @@ Nothing above uses a model. **Settings** offers three ways to add one. It runs o
 | Your own API key | Anthropic or OpenAI, inside Jobhunt | A key. It is kept in the macOS Keychain, never in the database, never sent to the browser. |
 | Claude Desktop | In Claude Desktop, on your Claude plan | Press **Add to Claude Desktop**, then restart Claude Desktop |
 
-Every piece of writing starts from the resume in your library that fits the job best, and the model is told to use only what that resume says. The result is then checked: any skill or figure the resume does not back up is listed above the text for you to verify. Results are plain text you can edit, copy or download.
+Every piece of writing starts from the resume in your library that fits the job best, and the model is told to use only what that resume says. The result is then checked: any skill or figure the resume does not back up is listed above the text for you to verify. Results are text you can edit and copy, and save to your Downloads folder as a PDF, a Word document or plain text. The PDF and Word files are one column of real text in a standard font, which applicant-tracking systems read reliably.
 
 **The Claude Desktop round trip.** Pressing a button on a job opens Claude Desktop with the request. Claude reads the job and your resume through the Jobhunt connector (`mcp/jobhunt-mcp.cjs`, a small Model Context Protocol server), writes, and saves the result back onto the job. Jobhunt has to be open. You can also just ask Claude about your search: it can search the feed, read postings and resumes, and update the tracker.
 
@@ -97,9 +98,11 @@ Every piece of writing starts from the resume in your library that fits the job 
 
 ## How it works
 
-**Sources.** Greenhouse, Lever and Ashby each publish a documented public feed that returns an employer's whole board in one request. Jobhunt sends one request per board, at most one a second per provider, with a plain `jobhunt/<version>` User-Agent. Because the reply is the whole board, a posting that is missing from it is closed; a board that fails closes nothing. The feed re-reads the boards when it is opened and the last full read is more than six hours old.
+**Sources.** Greenhouse, Lever, Ashby and Workable each publish a feed that returns an employer's whole board in one request. Workday, iCIMS, Oracle Recruiting, JazzHR and BambooHR do not: Jobhunt reads the list the employer's own careers page reads, then one request per posting for its text. Those boards are read incrementally. A posting whose text is already held is only marked as still listed; up to 60 new postings per board are read in full on each run, and the rest are saved from the list (title, place, date) and read in full on a later run. Every request carries a plain `jobhunt/<version>` User-Agent and no personal data, at most one a second to any one site. A posting missing from a complete list is closed; a board that fails, or whose list could not be read whole, closes nothing. The feed re-reads the boards when it is opened and the last full read is more than six hours old; the per-posting providers are read once a day.
 
-**Collections.** A collection is a site that lists many employers: a venture firm's portfolio board, a Simplify list on GitHub, a quant job site. Jobhunt does not copy a collection's jobs; it follows the employers' own boards behind it. Eight ship in `data/collections.json`: Andreessen Horowitz, Techstars, Accel, Foundry, Simplify New Grad, Simplify Summer 2027 Internships, a set followed directly in jobleft, and Quant firms (the employers openquant.co and quantbase.fyi list, each checked against its own board feed). Switch one off on the **Sources** page and its jobs leave the feed.
+**Collections.** A collection is a site that lists many employers: a venture firm's portfolio board, a Simplify list on GitHub, a quant job site. Jobhunt does not copy a collection's jobs; it follows the employers' own boards behind it. Eight ship in `data/collections.json`: Andreessen Horowitz, Techstars, Accel, Foundry, Simplify New Grad, Simplify Summer 2027 Internships, a set followed directly in jobleft, and Quant firms (the employers openquant.co and quantbase.fyi list, each checked against its own board feed). Once a week Jobhunt re-reads each collection's own site for employers it has added (`src/lib/collections.ts`): the sitemap, then one page per company it has not seen, looking for the employer's board; for a Simplify list, the list's data file. You can follow another collection by its address on the **Sources** page, check one now, switch one off, or remove it.
+
+**Alerts.** An alert is the feed's current search and filters, saved. After each refresh (and every half minute during a long one) it is run over the jobs that are new since it last ran. The 40 best matches are kept as hits, shown on the **Alerts** page, and announced with a macOS notification. Hits are dropped after a month.
 
 **Facts.** Each posting is read once, when it arrives, by plain text rules (`src/lib/parse`): level, years of experience, work model, pay, country, and what it says about sponsorship, citizenship, clearance and E-Verify, each kept with the sentence it came from. A field the posting does not state is left empty, never guessed.
 
@@ -118,11 +121,11 @@ With "I need visa sponsorship" on in your profile, postings that rule sponsorshi
 ## Project layout
 
 ```
-src/app/         the screens: Jobs (/), /tracker, /profile, /sources, /settings
+src/app/         the screens: Jobs (/), /alerts, /tracker, /profile, /sources, /settings
 src/app/api/     local JSON routes the screens, the extension and the connector call
 src/components/  Nav, JobCard, JobDrawer, JobWriting
-src/lib/         store (SQLite), sources (board readers), parse, taxonomy, match, ingest,
-                 resumes, ai, connector, ext, answers, people
+src/lib/         store (SQLite), sources and sources-more (board readers), collections, parse,
+                 taxonomy, match, ingest, alerts, resumes, export, ai, connector, ext, answers, people
 data/            board directory, collections, H-1B table, skill and job-title taxonomies
 extension/       the Chrome extension: engine.js (finds, fills and records fields),
                  content.js (the page side and its pill), view.js + sidepanel.js (the panel),
@@ -150,7 +153,8 @@ This is a personal project, built quickly, with no automated tests yet. What has
 
 | Part | State |
 |---|---|
-| Reading boards, scoring, filters, tracker, resume library | Exercised against live boards: 1,344 boards and about 79,000 jobs in one read |
+| Reading boards, scoring, filters, tracker, resume library | Exercised against live boards on all nine providers |
+| Collections re-read, alerts, PDF and Word export | Each exercised once against live data; exports opened and read back |
 | Extension on Greenhouse | Filled a live application form, including custom dropdowns and the resume upload, with nothing submitted |
 | Extension on Ashby | Text fields filled on a live form; fixes made afterwards were not re-run there |
 | Extension on Lever, Workday and others | Not tested. Workday needs a sign-in to reach the form. |
@@ -162,10 +166,8 @@ This is a personal project, built quickly, with no automated tests yet. What has
 
 Not built yet:
 
-- Readers for Workday, iCIMS, Oracle, Workable, JazzHR and BambooHR. Each collection's card on the Sources page counts the boards it lists on those providers.
-- Re-reading a collection's own site for new employers. The shipped collections are a snapshot.
-- PDF or Word export of tailored resumes.
-- Alerts, and importing LinkedIn connections.
+- Readers for the EU hosts of Greenhouse and Lever, and for Personio, Recruitee and SmartRecruiters.
+- Importing LinkedIn connections.
 - Windows and Linux builds of the desktop app.
 
 ## Credits

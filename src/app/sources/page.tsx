@@ -4,9 +4,10 @@ import { CircleAlert, CircleCheck, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { useCallback, useEffect, useState } from "react";
 import { ago, api, REFRESHED_EVENT } from "@/lib/client";
 import type { DirectoryBoard } from "@/lib/store";
-import type { Ats, Board, Collection } from "@/lib/types";
+import { ATS_LABEL, type Ats, type Board, type Collection } from "@/lib/types";
 
-const ATS_LABEL: Record<Ats, string> = { greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", manual: "Browser" };
+
+type Shown = Collection & { checking?: boolean };
 
 export default function SourcesPage() {
   const [boards, setBoards] = useState<Board[] | null>(null);
@@ -14,20 +15,40 @@ export default function SourcesPage() {
   const [q, setQ] = useState("");
   const [found, setFound] = useState<{ total: number; boards: DirectoryBoard[] } | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const [collections, setCollections] = useState<Collection[]>([]);
+  const [collections, setCollections] = useState<Shown[]>([]);
+  const [collectionUrl, setCollectionUrl] = useState("");
   const [find, setFind] = useState("");
   const [showAll, setShowAll] = useState(false);
 
   const load = useCallback(async () => {
-    const [b, c] = await Promise.all([api<{ boards: Board[] }>("/api/boards"), api<{ collections: Collection[] }>("/api/collections")]);
+    const [b, c] = await Promise.all([api<{ boards: Board[] }>("/api/boards"), api<{ collections: Shown[] }>("/api/collections")]);
     setBoards(b.boards);
     setCollections(c.collections);
   }, []);
 
-  async function toggle(c: Collection) {
-    setCollections((await api<{ collections: Collection[] }>("/api/collections", { method: "POST", body: JSON.stringify({ id: c.id, enabled: !c.enabled }) })).collections);
+  async function collectionAction(body: Record<string, unknown>) {
+    try {
+      setCollections((await api<{ collections: Shown[] }>("/api/collections", { method: "POST", body: JSON.stringify(body) })).collections);
+      void load();
+    } catch (e) {
+      setMessage({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  const toggle = (c: Shown) => collectionAction({ id: c.id, enabled: !c.enabled });
+
+  async function removeCollection(c: Shown) {
+    if (!window.confirm(`Stop following ${c.name}? Boards followed only through it are removed with their jobs. Jobs in your tracker are kept.`)) return;
+    setCollections((await api<{ collections: Shown[] }>(`/api/collections?id=${encodeURIComponent(c.id)}`, { method: "DELETE" })).collections);
     void load();
   }
+
+  // While a collection's site is being read, its card follows the progress.
+  const anyChecking = collections.some((c) => c.checking);
+  useEffect(() => {
+    if (!anyChecking) return;
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, [anyChecking, load]);
 
   useEffect(() => {
     const t = setTimeout(load, 0);
@@ -80,7 +101,7 @@ export default function SourcesPage() {
         <p className="eyebrow text-muted">Sources</p>
         <h1 className="display mt-3 text-[38px] sm:text-[56px]">Straight from the employer.</h1>
         <p className="mt-3 max-w-2xl text-[16px]">
-          Jobhunt reads the public job feed each employer publishes through Greenhouse, Lever or Ashby: one polite request per board, at most one a second. No LinkedIn, no Indeed, no scraping of pages.
+          Jobhunt reads each employer&apos;s own job board on Greenhouse, Lever, Ashby, Workday, Workable, iCIMS, Oracle, JazzHR and BambooHR, at most one request a second to any one site. No LinkedIn, no Indeed, no aggregators.
         </p>
       </section>
 
@@ -106,7 +127,7 @@ export default function SourcesPage() {
 
         <section className="rounded-xl bg-peach p-8 text-ink">
           <h2 className="display text-[28px]">Or paste a careers link</h2>
-          <p className="mt-2 text-[14px]">Any address on boards.greenhouse.io, jobs.lever.co or jobs.ashbyhq.com. A link to a single job works too.</p>
+          <p className="mt-2 text-[14px]">A link to the employer&apos;s job list on any of the nine providers above. A link to a single job works too.</p>
           <form className="mt-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (url.trim()) void add({ url: url.trim() }, "The board"); }}>
             <input className="field" placeholder="https://jobs.lever.co/acme" value={url} onChange={(e) => setUrl(e.target.value)} aria-label="Careers link" />
             <button className="btn btn-primary !h-11" disabled={!url.trim()}>Add</button>
@@ -136,13 +157,30 @@ export default function SourcesPage() {
                       {missing.toLocaleString()} more boards are on providers Jobhunt cannot read yet.
                     </p>
                   )}
-                  <button className="relative mt-4 inline-flex h-8 w-fit items-center rounded-md bg-canvas px-3 text-[13px] font-semibold text-ink" onClick={() => toggle(c)} aria-pressed={c.enabled}>
-                    {c.enabled ? "Following · switch off" : "Switch on"}
-                  </button>
+                  {!c.fixed && (
+                    <p className="relative mt-2 text-[12px] opacity-80">
+                      {c.checking ? c.lastResult ?? "Reading its site…" : c.lastCheckedAt ? `Site read ${ago(c.lastCheckedAt)}. ${c.lastResult ?? ""} Read again every week.` : c.lastResult ?? "Its site is read for new employers every week."}
+                    </p>
+                  )}
+                  <div className="relative mt-auto flex flex-wrap gap-2 pt-4">
+                    <button className="inline-flex h-8 items-center rounded-md bg-canvas px-3 text-[13px] font-semibold text-ink" onClick={() => toggle(c)} aria-pressed={c.enabled}>
+                      {c.enabled ? "Switch off" : "Switch on"}
+                    </button>
+                    {!c.fixed && c.enabled && (
+                      <button className="inline-flex h-8 items-center rounded-md bg-canvas/70 px-3 text-[13px] font-semibold text-ink disabled:opacity-60" disabled={c.checking} onClick={() => collectionAction({ id: c.id, check: true })}>
+                        {c.checking ? "Reading…" : "Check now"}
+                      </button>
+                    )}
+                    <button className="inline-flex h-8 items-center rounded-md px-2 text-[13px] font-semibold underline" onClick={() => removeCollection(c)}>Remove</button>
+                  </div>
                 </article>
               );
             })}
           </div>
+          <form className="mt-4 flex max-w-xl gap-2" onSubmit={(e) => { e.preventDefault(); if (collectionUrl.trim()) { void collectionAction({ url: collectionUrl.trim() }); setCollectionUrl(""); } }}>
+            <input className="field" placeholder="Follow another collection: jobs.sequoiacap.com, or a SimplifyJobs list on GitHub" value={collectionUrl} onChange={(e) => setCollectionUrl(e.target.value)} aria-label="Collection address" />
+            <button className="btn btn-secondary !h-11" disabled={!collectionUrl.trim()}>Follow</button>
+          </form>
         </section>
       )}
 
