@@ -1,7 +1,8 @@
 // Rebuilds data/collections.json from a jobleft data folder: the job collections followed there (a venture firm's
 // portfolio board, a Simplify list) and the employer boards jobleft found behind each one.
 //   node scripts/import-jobleft-collections.mjs [path to jobleft.db]
-// Only boards Jobhunt has a reader for are kept (Greenhouse, Lever, Ashby, US host); the rest are counted in
+// Only boards Jobhunt has a reader for are kept (US hosts of Greenhouse, Lever and Ashby, and Workday, Workable,
+// iCIMS, Oracle, JazzHR and BambooHR); the rest are counted in
 // `notRead` so Sources can say what is missing. Collections added by hand (data/collections-extra.json) are merged in.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -10,7 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 
 const file = process.argv[2] ?? join(homedir(), "Library/Application Support/jobleft/data/jobleft.db");
 const db = new DatabaseSync(file, { readOnly: true });
-const READABLE = new Set(["greenhouse", "lever", "ashby"]);
+const READABLE = new Set(["greenhouse", "lever", "ashby", "workday", "workable", "icims", "oracle", "jazzhr", "bamboohr"]);
 const DIRECT = { id: "jobleft", name: "Followed in jobleft", url: "" };
 
 const collections = [...db.prepare("SELECT id, name, url FROM srv_collections ORDER BY added_at").all(), DIRECT]
@@ -29,7 +30,7 @@ for (const r of db.prepare("SELECT ats, board, region, company, collection FROM 
 const extraFile = "data/collections-extra.json";
 if (existsSync(extraFile)) {
   const extra = JSON.parse(readFileSync(extraFile, "utf8"));
-  for (const c of extra.collections) collections.push({ id: c.id, name: c.name, url: c.url, notRead: {} });
+  for (const c of extra.collections) collections.push({ id: c.id, name: c.name, url: c.url, notRead: {}, fixed: c.fixed === true });
   for (const x of extra.boards) {
     const key = `${x.ats}:${x.slug.toLowerCase()}`;
     const b = boards.get(key) ?? { ats: x.ats, slug: x.slug, name: x.name, in: [] };

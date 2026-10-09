@@ -1,6 +1,6 @@
 [package]
 name = "jobhunt-shell"
-version = "0.2.0"
+version = "0.3.0"
 description = "Jobhunt desktop shell: starts the local server beside it and opens the window"
 edition = "2021"
 rust-version = "1.77"

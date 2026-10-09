@@ -10,13 +10,14 @@ const SOURCE_LABEL: Record<string, string> = { local: "local model", anthropic: 
 const BUTTON: Record<DocumentKind, string> = { fit: "Explain my fit", resume: "Tailor resume", cover: "Cover letter", message: "Outreach message" };
 
 /** The AI writing for one job: the four actions, and everything written so far, editable. */
-export function JobWriting({ jobId, company }: { jobId: string; company: string }) {
+export function JobWriting({ jobId }: { jobId: string }) {
   const [provider, setProvider] = useState<AiProvider | null>(null);
   const [docs, setDocs] = useState<JobDocument[]>([]);
   const [busy, setBusy] = useState<DocumentKind | null>(null);
   const [waiting, setWaiting] = useState<{ kind: DocumentKind; prompt: string; opened: boolean; since: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<number | "prompt" | null>(null);
+  const [savedFile, setSavedFile] = useState<{ id: number; path: string; name: string } | null>(null);
   const count = useRef(0);
 
   const load = useCallback(async () => {
@@ -69,12 +70,15 @@ export function JobWriting({ jobId, company }: { jobId: string; company: string 
     }
   }
 
-  function download(d: JobDocument) {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([d.content], { type: "text/plain" }));
-    a.download = `${DOCUMENT_LABEL[d.kind]} - ${company}.txt`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+  /** Saves the document into Downloads as a PDF, a Word file or text. The app writes the file, so this works in the desktop window too. */
+  async function exportAs(d: JobDocument, format: "pdf" | "docx" | "txt") {
+    setError(null);
+    try {
+      const r = await api<{ path: string; name: string }>("/api/documents/export", { method: "POST", body: JSON.stringify({ id: d.id, format }) });
+      setSavedFile({ id: d.id, ...r });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   async function remove(d: JobDocument) {
@@ -131,10 +135,18 @@ export function JobWriting({ jobId, company }: { jobId: string; company: string 
             </span>
             <span className="ml-auto flex gap-1">
               <button className="btn btn-quiet btn-sm !px-2" onClick={() => copy(d.content, d.id)} title="Copy" aria-label="Copy">{copied === d.id ? "Copied" : <Copy size={14} />}</button>
-              <button className="btn btn-quiet btn-sm !px-2" onClick={() => download(d)} title="Download as text" aria-label="Download"><Download size={14} /></button>
+              <button className="btn btn-quiet btn-sm !px-2" onClick={() => exportAs(d, "pdf")} title="Save as PDF in Downloads"><Download size={14} /> PDF</button>
+              <button className="btn btn-quiet btn-sm !px-2" onClick={() => exportAs(d, "docx")} title="Save as a Word document in Downloads">Word</button>
+              <button className="btn btn-quiet btn-sm !px-2" onClick={() => exportAs(d, "txt")} title="Save as plain text in Downloads">Text</button>
               <button className="btn btn-quiet btn-sm !px-2" onClick={() => remove(d)} title="Delete" aria-label="Delete"><Trash2 size={14} /></button>
             </span>
           </div>
+          {savedFile?.id === d.id && (
+            <p className="mt-2 rounded-md bg-[#d3ece4] px-3 py-2 text-[13px] text-[#123b33]" role="status">
+              Saved to Downloads as <span className="font-semibold">{savedFile.name}</span>.{" "}
+              <button className="font-semibold underline" onClick={() => api("/api/documents/export", { method: "POST", body: JSON.stringify({ reveal: savedFile.path }) }).catch(() => undefined)}>Show in Finder</button>
+            </p>
+          )}
           {d.warnings.length > 0 && (
             <p className="mt-2 flex gap-2 rounded-md bg-[#f8e9c2] px-3 py-2 text-[13px] text-[#5a4208]">
               <TriangleAlert size={15} className="mt-0.5 shrink-0" />

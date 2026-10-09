@@ -9,6 +9,7 @@ import type { RefreshStatus } from "@/lib/ingest";
 
 const LINKS = [
   { href: "/", label: "Jobs" },
+  { href: "/alerts", label: "Alerts" },
   { href: "/tracker", label: "Tracker" },
   { href: "/profile", label: "Profile" },
   { href: "/sources", label: "Sources" },
@@ -29,6 +30,17 @@ export function Nav() {
   const pathname = usePathname();
   const [status, setStatus] = useState<RefreshStatus | null>(null);
   const wasRunning = useRef(false);
+  const [unseen, setUnseen] = useState(0);
+
+  // The count of unread alert matches, read at start, after each refresh, and when the Alerts page changes it.
+  useEffect(() => {
+    const read = () => void api<{ unseen: number }>("/api/alerts?count=1").then((r) => setUnseen(r.unseen)).catch(() => undefined);
+    const first = setTimeout(read, 0);
+    const later = () => setTimeout(read, 1500);
+    window.addEventListener(REFRESHED_EVENT, later);
+    window.addEventListener("jobhunt:alerts-changed", read);
+    return () => { clearTimeout(first); window.removeEventListener(REFRESHED_EVENT, later); window.removeEventListener("jobhunt:alerts-changed", read); };
+  }, []);
 
   const poll = useCallback(async () => {
     try {
@@ -68,6 +80,7 @@ export function Nav() {
           {LINKS.map((l) => (
             <Link key={l.href} href={l.href} className="pill" aria-current={pathname === l.href ? "page" : undefined}>
               {l.label}
+              {l.href === "/alerts" && unseen > 0 && <span className="rounded-full bg-pink px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white">{unseen > 99 ? "99+" : unseen}</span>}
             </Link>
           ))}
         </nav>
