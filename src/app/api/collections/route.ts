@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     }
     if (typeof body.enabled !== "boolean") return Response.json({ error: "Nothing to change." }, { status: 400 });
     setCollectionEnabled(c.id, body.enabled);
-    rescore();
+    void rescore();
     return state();
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
@@ -39,6 +39,6 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   removeCollection(new URL(request.url).searchParams.get("id") ?? "");
-  rescore();
+  void rescore();
   return state();
 }

@@ -4,7 +4,7 @@ import { Check, ExternalLink, FileText, Minus, Users, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ago, api, BAND, payLabel, STATUS_LABEL, WORK_LABEL } from "@/lib/client";
 import { peopleSearches } from "@/lib/people";
-import { LEVEL_LABEL, TRACK_STATUSES, type JobDetail, type TrackStatus } from "@/lib/types";
+import { ATS_LABEL, LEVEL_LABEL, TRACK_STATUSES, type JobDetail, type TrackStatus } from "@/lib/types";
 import { MatchRing, VisaBadges } from "./JobCard";
 import { JobWriting } from "./JobWriting";
 
@@ -83,12 +83,13 @@ function Drawer({ id, onClose, onChanged }: { id: string; onClose: () => void; o
               </div>
               <div className="mt-4 flex flex-wrap gap-1.5">
                 {job.closedAt && <span className="badge badge-coral">Closed {ago(job.closedAt)}</span>}
+                <span className="badge !bg-transparent ring-1 ring-inset ring-hairline" title="The job board you apply through">{ATS_LABEL[job.ats]}</span>
                 {job.workModel && <span className="badge">{WORK_LABEL[job.workModel]}</span>}
                 {job.employmentType && <span className="badge">{job.employmentType}</span>}
                 {job.level && <span className="badge">{LEVEL_LABEL[job.level]}</span>}
                 {job.yearsMin !== null && <span className="badge">{job.yearsMin}+ yrs</span>}
                 {pay && <span className="badge badge-ochre">{pay}</span>}
-                <span className="badge">Posted {ago(job.postedAt ?? job.firstSeenAt)}</span>
+                <span className="badge">{job.postedAt ? `Posted ${ago(job.postedAt)}` : job.seenNew ? `Found ${ago(job.firstSeenAt)}` : "Posting date not given"}</span>
                 <VisaBadges job={job} />
               </div>
 

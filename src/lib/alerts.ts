@@ -3,7 +3,7 @@
 // anywhere: an alert is a row in the local database.
 import { execFile } from "node:child_process";
 import { cardsById, db, feed, filterFromParams, getProfile } from "./store";
-import { LEVEL_LABEL, type JobCard, type Level } from "./types";
+import { ATS_LABEL, LEVEL_LABEL, type Ats, type JobCard, type Level } from "./types";
 
 export type Alert = { id: number; name: string; params: string; summary: string; enabled: boolean; createdAt: string; lastRunAt: string; hits: number; unseen: number };
 export type AlertHit = JobCard & { alertId: number; alertName: string; foundAt: string; seen: boolean };
@@ -22,6 +22,7 @@ export function summarize(params: string): string {
   if (list("work").length) parts.push(list("work").map((w) => (w === "onsite" ? "on-site" : w)).join(" or "));
   if (list("level").length) parts.push(list("level").map((l) => LEVEL_LABEL[l as Level] ?? l).join(" or "));
   if (p.get("minScore")) parts.push(`match ${p.get("minScore")}% or more`);
+  if (list("ats").length) parts.push(`on ${list("ats").map((a) => ATS_LABEL[a as Ats] ?? a).join(", ")}`);
   if (p.get("h1b") === "1") parts.push("H-1B filers");
   if (p.get("capExempt") === "1") parts.push("cap-exempt employers");
   if (p.get("everify") === "1") parts.push("E-Verify employers");
@@ -81,7 +82,8 @@ export function listHits(limit = 120): AlertHit[] {
 }
 
 function notify(title: string, message: string): void {
-  if (process.platform !== "darwin") return;
+  // JOBHUNT_QUIET keeps the tests from popping notifications on the machine that runs them.
+  if (process.platform !== "darwin" || process.env.JOBHUNT_QUIET) return;
   const quote = (s: string) => `"${s.replace(/[\\"]/g, " ")}"`;
   execFile("/usr/bin/osascript", ["-e", `display notification ${quote(message)} with title ${quote(title)}`], () => undefined);
 }

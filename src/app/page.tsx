@@ -8,7 +8,7 @@ import { JobDrawer } from "@/components/JobDrawer";
 import { api, REFRESHED_EVENT } from "@/lib/client";
 import type { RefreshStatus } from "@/lib/ingest";
 import type { Feed } from "@/lib/store";
-import { LEVEL_LABEL, type Level, type TrackStatus, type WorkModel } from "@/lib/types";
+import { ATS_LABEL, LEVEL_LABEL, type Ats, type Level, type TrackStatus, type WorkModel } from "@/lib/types";
 
 type Filters = {
   q: string;
@@ -24,9 +24,17 @@ type Filters = {
   capExempt: boolean;
   pay: boolean;
   minScore: number;
+  /** Only jobs on these job boards; empty means all of them. */
+  ats: Ats[];
 };
 
-const DEFAULTS: Filters = { q: "", work: [], level: [], days: 0, sort: "recommended", us: null, hideBlocked: null, h1b: false, everify: false, capExempt: false, pay: false, minScore: 0 };
+// Boards where applying is one page with no account to create. Workday, iCIMS and Oracle ask for a sign-in and
+// several steps.
+const QUICK_APPLY: Ats[] = ["greenhouse", "lever", "ashby", "workable"];
+const BOARDS: Ats[] = ["greenhouse", "lever", "ashby", "workable", "workday", "icims", "oracle", "bamboohr", "jazzhr", "amazon", "microsoft", "apple", "meta"];
+const sameSet = (a: Ats[], b: Ats[]) => a.length === b.length && a.every((x) => b.includes(x));
+
+const DEFAULTS: Filters = { q: "", work: [], level: [], days: 0, sort: "recommended", us: null, hideBlocked: null, h1b: false, everify: false, capExempt: false, pay: false, minScore: 0, ats: [] };
 const STORE_KEY = "jobhunt.filters.v1";
 const PAGE = 40;
 
@@ -49,6 +57,7 @@ function query(f: Filters, limit: number): string {
   if (f.capExempt) p.set("capExempt", "1");
   if (f.pay) p.set("pay", "1");
   if (f.minScore) p.set("minScore", String(f.minScore));
+  if (f.ats.length) p.set("ats", f.ats.join(","));
   return p.toString();
 }
 
@@ -85,6 +94,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(PAGE);
   const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => { openRef.current = open; }, [open]);
   const [moreFilters, setMoreFilters] = useState(false);
   const [alertName, setAlertName] = useState<string | null>(null);
   const [alertSaved, setAlertSaved] = useState(false);
@@ -109,7 +119,7 @@ export default function Home() {
           // Opened from an alert: the address carries the filters.
           const list = (k: string) => (p.get(k) ?? "").split(",").filter(Boolean);
           setFilters({
-            ...DEFAULTS, q: p.get("q") ?? "", work: list("work") as WorkModel[], level: list("level") as Level[], minScore: Number(p.get("minScore")) || 0,
+            ...DEFAULTS, q: p.get("q") ?? "", work: list("work") as WorkModel[], level: list("level") as Level[], minScore: Number(p.get("minScore")) || 0, ats: list("ats") as Ats[],
             h1b: p.get("h1b") === "1", everify: p.get("everify") === "1", capExempt: p.get("capExempt") === "1", pay: p.get("pay") === "1",
             us: p.has("us") ? p.get("us") === "1" : null, hideBlocked: p.has("hideBlocked") ? p.get("hideBlocked") === "1" : null,
           });
@@ -148,9 +158,23 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [ready, filters, load]);
 
+  // While boards are being read the header reports progress every few seconds. The list is not redrawn on each of
+  // those: it would shift under the reader. It is read again at most every twenty seconds, never while a job is
+  // open, and once more when the run ends.
+  const lastLoad = useRef(0);
+  const openRef = useRef<string | null>(null);
   useEffect(() => {
-    window.addEventListener(REFRESHED_EVENT, load);
-    return () => window.removeEventListener(REFRESHED_EVENT, load);
+    const onProgress = (e: Event) => {
+      const status = (e as CustomEvent<RefreshStatus | undefined>).detail;
+      if (status?.running) {
+        setData((d) => (d ? { ...d, refresh: status } : d));
+        if (openRef.current || Date.now() - lastLoad.current < 20_000) return;
+      }
+      lastLoad.current = Date.now();
+      void load();
+    };
+    window.addEventListener(REFRESHED_EVENT, onProgress);
+    return () => window.removeEventListener(REFRESHED_EVENT, onProgress);
   }, [load]);
 
   const set = (patch: Partial<Filters>) => { setLimit(PAGE); setFilters((f) => ({ ...f, ...patch })); };
@@ -163,7 +187,7 @@ export default function Home() {
 
   const usOnly = filters.us ?? data?.applied.usOnly ?? false;
   const hideBlocked = filters.hideBlocked ?? data?.applied.hideBlocked ?? false;
-  const active = filters.work.length + filters.level.length + (filters.days ? 1 : 0) + [filters.h1b, filters.everify, filters.capExempt, filters.pay].filter(Boolean).length + (filters.minScore ? 1 : 0);
+  const active = filters.work.length + filters.level.length + (filters.days ? 1 : 0) + [filters.h1b, filters.everify, filters.capExempt, filters.pay].filter(Boolean).length + (filters.minScore ? 1 : 0) + (filters.ats.length ? 1 : 0);
   const reading = data?.refresh.running ?? false;
 
   return (
@@ -237,9 +261,19 @@ export default function Home() {
           <Toggle on={filters.everify} onClick={() => set({ everify: !filters.everify })} title="The posting says the employer uses E-Verify, which a STEM OPT extension needs">E-Verify</Toggle>
           <Toggle on={filters.days === 3} onClick={() => set({ days: filters.days === 3 ? 0 : 3 })}>Last 3 days</Toggle>
           <Toggle on={filters.pay} onClick={() => set({ pay: !filters.pay })}>Pay listed</Toggle>
+          <Toggle on={sameSet(filters.ats, QUICK_APPLY)} onClick={() => set({ ats: sameSet(filters.ats, QUICK_APPLY) ? [] : QUICK_APPLY })} title="Only Greenhouse, Lever, Ashby and Workable: one page, no account to create">Quick apply</Toggle>
         </div>
         {moreFilters && (
           <div className="mt-4 grid animate-rise gap-5 rounded-lg bg-surface-card p-5 md:grid-cols-4">
+            <div className="md:col-span-4">
+              <p className="eyebrow text-muted">Job board</p>
+              <p className="mt-1 text-[12px] text-muted">Where you apply. Greenhouse, Lever, Ashby and Workable are one page; Workday, iCIMS and Oracle ask you to sign in and go through several steps. None chosen means all.</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {BOARDS.map((a) => (
+                  <Toggle key={a} on={filters.ats.includes(a)} onClick={() => set({ ats: flip(filters.ats, a) })}>{ATS_LABEL[a]}</Toggle>
+                ))}
+              </div>
+            </div>
             <div>
               <p className="eyebrow text-muted">Work model</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -316,7 +350,7 @@ export default function Home() {
         )}
       </section>
 
-      <JobDrawer id={open} onClose={() => setOpen(null)} onChanged={load} />
+      <JobDrawer id={open} onClose={() => { setOpen(null); void load(); }} onChanged={load} />
     </main>
   );
 }

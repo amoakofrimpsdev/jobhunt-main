@@ -8,7 +8,7 @@ No account, no database server, no AI key. Your profile, resumes, answers and tr
 
 ## What it does
 
-- **Reads jobs from the source.** About 2,400 employer boards on Greenhouse, Lever, Ashby, Workday, Workable, iCIMS, Oracle, JazzHR and BambooHR. No aggregators, and a posting that closes drops out on the next read.
+- **Reads jobs from the source.** About 2,400 employer boards on Greenhouse, Lever, Ashby, Workday, Workable, iCIMS, Oracle, JazzHR and BambooHR, plus the careers sites Amazon, Microsoft, Apple and Meta run themselves. No aggregators, and a posting that closes drops out on the next read.
 - **Ranks them for you.** A match percent built from role, skills and level, with the reason for every number. No model involved: the same profile and posting always give the same score.
 - **Knows about work authorization.** Marks employers with recent H-1B filings, likely cap-exempt employers and E-Verify employers, and catches postings that ask for citizenship or a clearance or say they will not sponsor, quoting the posting's own words.
 - **Picks the resume.** Keep several resumes (or point it at a folder). Each job shows which one fits best and why.
@@ -104,6 +104,14 @@ Every piece of writing starts from the resume in your library that fits the job 
 
 **Alerts.** An alert is the feed's current search and filters, saved. After each refresh (and every half minute during a long one) it is run over the jobs that are new since it last ran. The 40 best matches are kept as hits, shown on the **Alerts** page, and announced with a macOS notification. Hits are dropped after a month.
 
+**Company careers sites.** Amazon, Microsoft, Apple and Meta do not use a job board provider, so each has a reader of its own and shows up on Sources as one board. Amazon's search returns full postings, so all of its United States jobs (about 13,000) arrive on the first read. Microsoft and Apple list their United States jobs and need a request per posting for the text; Meta's sitemap names its postings but gives no titles, so a Meta job appears once its page has been read. A run reads up to 600 new postings from one site and gives it at most twenty minutes, so Apple (about 4,400) fills in over about a week. Microsoft's site turns requests away when asked more than about once every three seconds, so it is read at that pace: about 200 full postings a run. Google is not read: its `robots.txt` disallows the job results pages.
+
+**Postings not read yet.** On the providers that need a request per posting, a job can be in the feed before its text has been read. Its card says "Requirements not read yet", because until then Jobhunt cannot know whether the posting rules out sponsorship, whatever the employer's H-1B record. Opening the job reads the posting there and then.
+
+**Dates.** A card shows the board's own posting date when it gives one. Workday only says "Posted 30+ Days Ago" for older postings, which is kept as thirty days before the posting was first seen: the latest it can have gone up. A posting with no date that turns up on a board already being followed shows "Found 2h ago"; one that was simply there on the board's first read shows "Date not given" and is not treated as new.
+
+**Job boards.** Every card carries the board you would apply through (Greenhouse, Workday, …), and the feed can be limited to chosen boards. "Quick apply" keeps Greenhouse, Lever, Ashby and Workable, where applying is one page with no account to create.
+
 **Facts.** Each posting is read once, when it arrives, by plain text rules (`src/lib/parse`): level, years of experience, work model, pay, country, and what it says about sponsorship, citizenship, clearance and E-Verify, each kept with the sentence it came from. A field the posting does not state is left empty, never guessed.
 
 **Work authorization.** Three signals for people on F-1 OPT or who need H-1B:
@@ -142,14 +150,33 @@ Useful commands:
 |---|---|
 | `npm run dev` | The app at http://localhost:3000 |
 | `npm run build` | A production build |
+| `npm test` | The test suite (about a second; nothing touches your database or the network) |
 | `npm run typecheck` / `npm run lint` | TypeScript and ESLint |
 | `npm run dmg` | The Mac disk image and the extension zip, in `dist/` |
 
 Built with Next.js 16, React 19, Tailwind CSS 4, Node's built-in SQLite and Tauri 2.
 
+## Tests
+
+```bash
+npm test
+```
+
+41 tests in `tests/`, run with Node's own test runner. They need no network and use a throwaway database in a temp folder, so they never touch `.data/`.
+
+| File | What it pins down |
+|---|---|
+| `parse.test.ts` | Reading a posting: sponsorship, citizenship, clearance and E-Verify statements, level, years, pay, work model, country, and HTML made safe |
+| `match.test.ts` | Skills and job-title taxonomies, the match score and its caps, company-name matching, H-1B and cap-exempt lookups, resume reading |
+| `sources.test.ts` | Recognising a careers link on all nine providers, LinkedIn search links, alert summaries, PDF and Word export |
+| `store.test.ts` | The database end to end: reading a board in, closing what disappears, posting dates, scoring, filters, tracker, alerts, the extension's pairing code |
+| `extension.test.ts` | The extension's form engine: what a question asks and which option answers it |
+
+The same checks run on GitHub for every push (`.github/workflows/test.yml`). The live board readers and the extension inside a real browser are not covered by automated tests.
+
 ## Status
 
-This is a personal project, built quickly, with no automated tests yet. What has and has not been exercised:
+This is a personal project, built quickly. What has and has not been exercised beyond the tests above:
 
 | Part | State |
 |---|---|

@@ -4,7 +4,8 @@ import { scoreJob, scorerFor } from "./match";
 import { countryOf, employmentTypeOf, levelOfTitle, levelOfYears, payFromText, workModelOf, yearsRequired } from "./parse/facts";
 import { parseStatements, visaBlocker } from "./parse/statements";
 import { fetchBoard, isSlowAts } from "./sources";
-import { getMeta, getProfile, jobsForScoring, listBoards, profileReady, recordBoardRun, saveBoardListing, saveMatches, setMeta, type JobRow, heldPostingIds } from "./store";
+import { fetchPosting } from "./sources-more";
+import { getMeta, getProfile, jobsForScoring, listBoards, profileReady, recordBoardRun, saveBoardListing, saveMatches, setMeta, type JobRow, heldPostingIds, unreadPosting } from "./store";
 import { familyOfTitle, scanSkills } from "./taxonomy";
 import { htmlToText, sanitizeHtml } from "./text";
 import type { Board, Match, RawJob } from "./types";
@@ -51,18 +52,95 @@ export function toJobRow(board: Pick<Board, "id" | "ats" | "slug">, raw: RawJob)
   };
 }
 
-/** Scores every open posting against the saved profile. With no usable profile the feed is simply unscored. */
-export function rescore(): number {
+const pause = () => new Promise<void>((r) => setImmediate(r));
+
+/** Scores postings that were just written, straight from their rows: nothing is read back from the database. */
+export function scoreRows(rows: JobRow[]): void {
   const profile = getProfile();
-  if (!profileReady(profile)) { saveMatches([]); return 0; }
+  if (!rows.length || !profileReady(profile)) return;
   const scorer = scorerFor(profile);
   const out: Array<{ jobId: string; match: Match }> = [];
-  for (const j of jobsForScoring()) {
+  for (const j of rows) {
     const match = scoreJob(scorer, j);
     if (match) out.push({ jobId: j.id, match });
   }
-  saveMatches(out);
-  return out.length;
+  saveMatches(out, false);
+}
+
+const SCORE_PAGE = 1500;
+let scoring: Promise<number> | null = null;
+let scoreAgain: boolean | null = null;
+
+/**
+ * Scores open postings against the saved profile: all of them after the profile changed, otherwise only the ones
+ * with no score yet. The work is done a page at a time with a pause between pages, so the screens and the browser
+ * extension are answered while it runs. With no usable profile the feed is simply unscored.
+ */
+export function rescore(everything = false): Promise<number> {
+  if (scoring) {
+    // One pass at a time: a request that arrives meanwhile runs after it (a full one wins over a partial one).
+    scoreAgain = scoreAgain === true || everything;
+    return scoring.then(() => scoring ?? 0);
+  }
+  const pass = async (all: boolean): Promise<number> => {
+    const profile = getProfile();
+    if (!profileReady(profile)) { saveMatches([], true); return 0; }
+    const scorer = scorerFor(profile);
+    let scored = 0;
+    let after: { boardId: number; id: string } | null = null;
+    for (;;) {
+      const page = jobsForScoring(!all, after, SCORE_PAGE);
+      if (!page.length) break;
+      const out: Array<{ jobId: string; match: Match }> = [];
+      const none: string[] = [];
+      for (const j of page) {
+        const match = scoreJob(scorer, j);
+        if (match) out.push({ jobId: j.id, match });
+        else none.push(j.id);
+      }
+      saveMatches(out, false, all ? none : []);
+      scored += out.length;
+      after = { boardId: page[page.length - 1].boardId, id: page[page.length - 1].id };
+      await pause();
+    }
+    return scored;
+  };
+  scoring = pass(everything).finally(() => {
+    scoring = null;
+    if (scoreAgain !== null) { const all = scoreAgain; scoreAgain = null; void rescore(all); }
+  });
+  return scoring;
+}
+
+const reading = new Map<string, Promise<boolean>>();
+
+/**
+ * Reads the text of one posting that was saved from its board's list alone, so that opening a job shows what the
+ * posting really says (and whether it rules out sponsorship) without waiting for the board's next runs. True when
+ * the text arrived.
+ */
+export function readPosting(id: string): Promise<boolean> {
+  const running = reading.get(id);
+  if (running) return running;
+  const held = unreadPosting(id);
+  if (!held) return Promise.resolve(false);
+  const work = (async () => {
+    try {
+      const raw = await fetchPosting(held.board.ats, held.board.slug, held.raw.company || held.board.name, held.raw);
+      if (!raw) return false;
+      const row = toJobRow(held.board, { ...raw, externalId: held.raw.externalId });
+      saveBoardListing(held.board.id, [row], false);
+      scoreRows([row]);
+      return true;
+    } catch {
+      // The board did not answer: the job stays as it was and is read on a later run.
+      return false;
+    } finally {
+      reading.delete(id);
+    }
+  })();
+  reading.set(id, work);
+  return work;
 }
 
 const SLOW_EVERY_MS = 20 * 3_600_000;
@@ -111,9 +189,12 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
       const rows: JobRow[] = [];
       for (const j of raw) {
         if (j.title && j.url) rows.push(toJobRow(b, j));
-        if (rows.length % 25 === 0) await new Promise((r) => setImmediate(r));
+        if (rows.length % 25 === 0) await pause();
       }
       const result = saveBoardListing(b.id, rows, !listing.partial, listing.seenIds.map((id) => `${b.ats}:${b.slug}:${id}`));
+      // Scored as they are saved, a few hundred at a time: no pass over the whole database while boards are read.
+      const fresh = rows.filter((r) => result.written.has(r.id));
+      for (let i = 0; i < fresh.length; i += 500) { scoreRows(fresh.slice(i, i + 500)); await pause(); }
       status.added += result.added;
       status.closed += result.closed;
       recordBoardRun(b.id, true, null);
@@ -123,9 +204,7 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
       recordBoardRun(b.id, false, e instanceof Error ? e.message : String(e));
     }
     status.done++;
-    // Scoring everything takes a moment once there are many jobs, so it runs every half minute while boards arrive.
     if (Date.now() - lastScored > 30_000) {
-      rescore();
       lastScored = Date.now();
       // A full read can take hours now that some providers need a request per posting: alerts do not wait for its end.
       void import("./alerts").then((m) => m.runAlerts()).catch(() => undefined);
@@ -145,8 +224,9 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
   for (let i = 0; i < SLOW_AT_ONCE; i++) workers.push((async () => { for (let b = perEmployer.shift(); b; b = perEmployer.shift()) await readBoard(b); })());
   void Promise.all(workers)
     .catch(() => undefined)
+    // Anything left without a score (a board switched on mid-run) is caught here.
+    .then(() => rescore().catch(() => 0))
     .then(() => {
-      rescore();
       // Alerts look at what this run brought in, after it has been scored.
       void import("./alerts").then((m) => m.runAlerts()).catch(() => undefined);
       status.running = false;

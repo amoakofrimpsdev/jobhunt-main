@@ -7,7 +7,8 @@
   if (globalThis.JobhuntEngine) return;
 
   const clean = (s) => (s || "").replace(/\s+/g, " ").replace(/\s*[*✱]\s*$/, "").replace(/\((?:required|optional)\)/gi, "").trim();
-  const norm = (s) => clean(s).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  // Apostrophes are dropped, not turned into a space: "Master's" and "Masters" are the same word.
+  const norm = (s) => clean(s).toLowerCase().replace(/['’]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
   const visible = (el) => {
     if (!el || !el.isConnected) return false;
     const r = el.getBoundingClientRect();
