@@ -1,6 +1,6 @@
 {
   "name": "jobhunt",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "data": "node scripts/build-data.mjs",
-    "dmg": "bash scripts/build-dmg.sh"
+    "dmg": "bash scripts/build-dmg.sh",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.0",
@@ -30,6 +31,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   },
   "description": "Jobs read straight from employers' boards, ranked against your profile, on your own computer.",

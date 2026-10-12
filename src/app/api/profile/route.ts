@@ -28,6 +28,6 @@ export async function PUT(request: Request) {
     usOnly: b.usOnly !== false,
     resumeName: typeof b.resumeName === "string" ? b.resumeName.slice(0, 200) : null,
   });
-  const scored = rescore();
+  const scored = await rescore(true);
   return Response.json({ profile, skillNames: names(profile), scored });
 }

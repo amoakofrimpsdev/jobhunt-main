@@ -1,8 +1,8 @@
 "use client";
 
-import { Bookmark, BookmarkCheck, Check, ExternalLink, ShieldAlert, ShieldCheck } from "lucide-react";
-import { ago, BAND, BLOCKER_LABEL, payLabel, WORK_LABEL } from "@/lib/client";
-import { LEVEL_LABEL, type JobCard as Job, type Match, type TrackStatus } from "@/lib/types";
+import { Bookmark, BookmarkCheck, Check, ExternalLink, ShieldAlert, ShieldCheck, ShieldQuestion } from "lucide-react";
+import { BAND, BLOCKER_LABEL, payLabel, WORK_LABEL, postedLabel } from "@/lib/client";
+import { ATS_LABEL, LEVEL_LABEL, type JobCard as Job, type Match, type TrackStatus } from "@/lib/types";
 
 export function MatchRing({ match, size = 56 }: { match: Match | null; size?: number }) {
   const r = size / 2 - 5;
@@ -31,6 +31,11 @@ export function VisaBadges({ job }: { job: Job }) {
       {job.blocker && (
         <span className="badge badge-coral"><ShieldAlert size={12} />{BLOCKER_LABEL[job.blocker]}</span>
       )}
+      {job.unread && !job.blocker && (
+        <span className="badge !bg-transparent ring-1 ring-inset ring-hairline" title="Jobhunt has the title and place but has not read this posting's text yet, so it cannot say whether it rules out sponsorship. Opening the job reads it.">
+          <ShieldQuestion size={12} />Requirements not read yet
+        </span>
+      )}
       {!job.blocker && job.sponsorship === "yes" && <span className="badge badge-mint"><ShieldCheck size={12} />Says it sponsors</span>}
       {!job.blocker && job.h1bFilings > 0 && (
         <span className="badge badge-mint" title={`${job.h1bFilings.toLocaleString()} certified H-1B filings in US Department of Labor data`}>
@@ -55,25 +60,28 @@ export function JobCard({ job, onOpen, onTrack, index = 0 }: {
     <article
       className="card group flex animate-rise cursor-pointer gap-3 p-4 sm:gap-4 sm:p-5 transition-[border-color,box-shadow] hover:border-ink/25 hover:shadow-[0_6px_24px_-12px_rgb(10_10_10/0.25)]"
       style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}
-      onClick={() => onOpen(job.id)}
+      // A click on a button or link inside the card is that control's own. It is left to travel on (not stopped), since
+      // the desktop app opens links in the browser from a listener on the window.
+      onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) onOpen(job.id); }}
     >
       <MatchRing match={job.match} />
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             <h3 className="truncate text-[17px] font-semibold leading-snug text-ink">
-              <button className="text-left hover:underline" onClick={(e) => { e.stopPropagation(); onOpen(job.id); }}>{job.title}</button>
+              <button className="text-left hover:underline" onClick={() => onOpen(job.id)}>{job.title}</button>
             </h3>
             <p className="mt-0.5 truncate text-[14px] text-body">
               <span className="font-medium text-ink">{job.company}</span>
               {job.location && <span className="text-muted"> · {job.location}</span>}
             </p>
           </div>
-          <span className="shrink-0 pt-1 text-[12px] text-muted-soft">{ago(job.postedAt ?? job.firstSeenAt)}</span>
+          <span className="shrink-0 pt-1 text-[12px] text-muted-soft">{postedLabel(job)}</span>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {job.match && <span className="badge" style={{ background: BAND[job.match.band].track, color: "#0a0a0a" }}>{BAND[job.match.band].label} match</span>}
           {job.workModel && <span className="badge">{WORK_LABEL[job.workModel]}</span>}
+          <span className="badge !bg-transparent ring-1 ring-inset ring-hairline" title="The job board you apply through">{ATS_LABEL[job.ats]}</span>
           {job.level && <span className="badge">{LEVEL_LABEL[job.level]}</span>}
           {job.yearsMin !== null && <span className="badge">{job.yearsMin}+ yrs</span>}
           {pay && <span className="badge badge-ochre">{pay}</span>}
@@ -87,7 +95,7 @@ export function JobCard({ job, onOpen, onTrack, index = 0 }: {
           </p>
         )}
       </div>
-      <div className="flex shrink-0 flex-col items-end justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+      <div className="flex shrink-0 flex-col items-end justify-between gap-2">
         <button className="btn btn-quiet btn-sm" aria-pressed={saved} aria-label={saved ? "Remove from saved" : "Save job"} onClick={() => onTrack(job.id, saved ? null : "saved")}>
           {saved ? <BookmarkCheck size={17} className="text-pink" /> : <Bookmark size={17} />}
         </button>

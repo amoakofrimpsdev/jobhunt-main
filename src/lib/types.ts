@@ -1,8 +1,17 @@
-/** "manual" is not a provider: it marks jobs the person saved from a page in their browser. */
-export type Ats = "greenhouse" | "lever" | "ashby" | "workday" | "workable" | "icims" | "oracle" | "jazzhr" | "bamboohr" | "manual";
+/** The last four are single employers that run a careers site of their own. "manual" is not a provider: it marks
+ *  jobs the person saved from a page in their browser. */
+export type Ats = "greenhouse" | "lever" | "ashby" | "workday" | "workable" | "icims" | "oracle" | "jazzhr" | "bamboohr" | "amazon" | "microsoft" | "apple" | "meta" | "manual";
+/** Employers read from their own careers site: one board each. */
+export const COMPANY_SITES: Array<{ ats: Ats; slug: string; name: string; host: string }> = [
+  { ats: "amazon", slug: "us", name: "Amazon", host: "amazon.jobs" },
+  { ats: "microsoft", slug: "us", name: "Microsoft", host: "careers.microsoft.com" },
+  { ats: "apple", slug: "us", name: "Apple", host: "jobs.apple.com" },
+  { ats: "meta", slug: "all", name: "Meta", host: "metacareers.com" },
+];
 export const ATS_LABEL: Record<Ats, string> = {
   greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workday: "Workday", workable: "Workable", icims: "iCIMS",
-  oracle: "Oracle", jazzhr: "JazzHR", bamboohr: "BambooHR", manual: "Browser",
+  oracle: "Oracle", jazzhr: "JazzHR", bamboohr: "BambooHR", amazon: "Amazon Jobs", microsoft: "Microsoft Careers",
+  apple: "Apple Jobs", meta: "Meta Careers", manual: "Browser",
 };
 export type WorkModel = "remote" | "hybrid" | "onsite";
 export type Level = "intern" | "entry" | "mid" | "senior" | "staff" | "manager" | "director" | "exec";
@@ -115,8 +124,12 @@ export type JobCard = {
   payPeriod: PayPeriod | null;
   postedAt: string | null;
   firstSeenAt: string;
+  /** The posting arrived on a board that was already being followed, so the day it was first seen is about the day it went up. */
+  seenNew: boolean;
   url: string;
   ats: Ats;
+  /** Saved from the board's list alone: the posting's text, and so what it says about visas, has not been read. */
+  unread: boolean;
   sponsorship: "yes" | "no" | null;
   eVerify: boolean | null;
   blocker: "clearance" | "citizenship" | "no_sponsorship" | null;

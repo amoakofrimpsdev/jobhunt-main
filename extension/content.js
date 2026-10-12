@@ -81,9 +81,26 @@
 
   // ---------------------------------------------------------------- actions
 
-  async function connect() {
+  let connecting = null;
+  function connect() {
+    connecting = connecting || findApp().finally(() => { connecting = null; });
+    return connecting;
+  }
+
+  // Coming back to the tab after opening the app: look again without being asked.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && state.status && !state.status.running) void connect(); });
+
+  async function findApp() {
     state.error = "";
-    state.status = await send({ type: "status" });
+    // "Jobhunt is not open" is only said after the app stayed silent for a few tries: it answers slowly while it
+    // reads job boards, and Chrome may just have woken the extension. Until then the panel says it is looking.
+    let found = { running: false, paired: false };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) { state.status = null; update(); await new Promise((r) => setTimeout(r, 1500)); }
+      found = (await send({ type: "status" })) || found;
+      if (found.running) break;
+    }
+    state.status = found;
     update();
     if (state.status.running && state.status.paired) await loadContext();
   }

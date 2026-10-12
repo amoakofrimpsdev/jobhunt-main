@@ -2,7 +2,7 @@
 // returns an employer's whole board, straight from the employer, so a posting that is gone from the reply is closed.
 import { arr, getJson, iso, num, obj, str } from "./http";
 import { fetchOther, isSlowAts } from "./sources-more";
-import type { Ats, PayPeriod, RawJob, WorkModel } from "./types";
+import { COMPANY_SITES, type Ats, type PayPeriod, type RawJob, type WorkModel } from "./types";
 
 function workplace(v: string): WorkModel | null {
   const k = v.toLowerCase().replace(/[^a-z]/g, "");
@@ -144,6 +144,8 @@ export function detectBoard(input: string): { ats: Exclude<Ats, "manual">; slug:
   const host = url.host.toLowerCase();
   const parts = url.pathname.split("/").filter(Boolean);
   const ok = (s: string | undefined) => (s && /^[A-Za-z0-9._-]+$/.test(s) ? s : null);
+  const own = COMPANY_SITES.find((c) => host === c.host || host.endsWith(`.${c.host}`));
+  if (own) return { ats: own.ats as Exclude<Ats, "manual">, slug: own.slug };
   if (host.endsWith("greenhouse.io")) {
     const forParam = ok(url.searchParams.get("for") ?? undefined);
     const slug = forParam ?? ok(parts[0] === "embed" || parts[0] === "v1" ? parts[2] : parts[0]);

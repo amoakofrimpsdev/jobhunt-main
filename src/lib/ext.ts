@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { listAnswers, saveAnswer, seedAnswers } from "./answers";
 import { startRefresh, toJobRow } from "./ingest";
-import { rescore } from "./ingest";
+import { scoreRows } from "./ingest";
 import { listResumes, resumeFits } from "./resumes";
 import { detectBoard } from "./sources";
 import { addBoard, db, directory, getMeta, jobDetail, jobScoringFacts, manualBoard, saveBoardListing, setMeta, track } from "./store";
@@ -54,6 +54,10 @@ export function jobIdForUrl(input: string): string | null {
   if (host.endsWith(".bamboohr.com") && tail(/\/careers\/(\d+)/)) return like(`bamboohr:%:${tail(/\/careers\/(\d+)/)}`);
   if (host === "apply.workable.com" && tail(/\/j\/([A-Za-z0-9]+)/)) return like(`workable:%:${tail(/\/j\/([A-Za-z0-9]+)/)}`);
   if (host.endsWith(".oraclecloud.com") && tail(/\/job\/(\d+)/)) return like(`oracle:%:${tail(/\/job\/(\d+)/)}`);
+  if (host.endsWith("amazon.jobs") && tail(/\/jobs\/(\d+)/)) return like(`amazon:%:${tail(/\/jobs\/(\d+)/)}`);
+  if (host.endsWith("careers.microsoft.com") && tail(/\/job\/(\d+)/)) return like(`microsoft:%:${tail(/\/job\/(\d+)/)}`);
+  if (host === "jobs.apple.com" && tail(/\/details\/([\w-]+)/)) return like(`apple:%:${tail(/\/details\/([\w-]+)/)}`);
+  if (host.endsWith("metacareers.com") && tail(/\/job_details\/(\d+)/)) return like(`meta:%:${tail(/\/job_details\/(\d+)/)}`);
   const plain = `${u.origin}${u.pathname}`.replace(/\/(?:apply|application)\/?$/, "").replace(/\/$/, "");
   const row = d.prepare("SELECT id FROM jobs WHERE url = ? OR url = ? OR apply_url = ? LIMIT 1").get(plain, `${plain}/`, input) as { id: string } | undefined;
   return row?.id ?? null;
@@ -131,6 +135,6 @@ export function saveJobFromPage(p: { url: string; title: string; company: string
   });
   saveBoardListing(board.id, [row], false);
   track(row.id, "saved");
-  rescore();
+  scoreRows([row]);
   return { jobId: row.id, followed: null };
 }

@@ -8,31 +8,48 @@ let base = null;
 
 const token = async () => (await chrome.storage.local.get("token")).token || "";
 
-async function ping(port) {
+// The app can take a few seconds to answer while it is reading job boards. A port that refuses the connection
+// answers at once ("closed"); one that accepts it and then says nothing in time is the app, busy ("busy").
+async function ping(port, ms = 2500) {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/ext/ping`, { headers: { "x-jobhunt-ext": await token() }, signal: AbortSignal.timeout(1500) });
+    const res = await fetch(`http://127.0.0.1:${port}/api/ext/ping`, { headers: { "x-jobhunt-ext": await token() }, signal: AbortSignal.timeout(ms) });
     const body = await res.json();
-    return body.app === "jobhunt" ? { port, paired: body.paired === true } : null;
-  } catch {
-    return null;
+    return body.app === "jobhunt" ? { port, paired: body.paired === true } : "closed";
+  } catch (e) {
+    return e && (e.name === "TimeoutError" || e.name === "AbortError") ? "busy" : "closed";
   }
 }
 
-/** Finds the running app. { running, paired }. */
+// Chrome stops this worker when it is idle, so the port is kept for the browser session, not only in memory.
+const remember = (port) => { base = port; chrome.storage.session?.set({ port }).catch(() => undefined); };
+
+/** Finds the running app. { running, paired, busy }. */
 async function status() {
-  const known = base ? await ping(base) : null;
-  if (known) return { running: true, paired: known.paired };
-  base = null;
-  for (const port of PORTS) {
-    const hit = await ping(port);
-    if (hit) { base = port; return { running: true, paired: hit.paired }; }
+  if (!base) base = (await chrome.storage.session?.get("port").catch(() => ({})))?.port || null;
+  // The port that answered last time is asked first and given longer: the app is most likely still there.
+  if (base) {
+    for (const ms of [4000, 8000]) {
+      const known = await ping(base, ms);
+      if (known === "closed") break;
+      if (known !== "busy") return { running: true, paired: known.paired };
+    }
   }
-  return { running: false, paired: false };
+  const hits = await Promise.all(PORTS.map((port) => ping(port)));
+  const hit = hits.find((h) => typeof h === "object");
+  if (hit) { remember(hit.port); return { running: true, paired: hit.paired }; }
+  // Something holds one of the ports open without answering in time: wait for it rather than report "not open".
+  const busyPort = PORTS.find((_, i) => hits[i] === "busy");
+  if (busyPort) {
+    const slow = await ping(busyPort, 10000);
+    if (typeof slow === "object") { remember(slow.port); return { running: true, paired: slow.paired }; }
+  }
+  base = null;
+  return { running: false, paired: false, busy: Boolean(busyPort) };
 }
 
 async function call(path, method = "GET", body) {
   if (!base && !(await status()).running) return { ok: false, status: 0, error: "Jobhunt is not open on this computer." };
-  try {
+  const ask = async () => {
     const res = await fetch(`http://127.0.0.1:${base}/api/ext/${path}`, {
       method,
       headers: { "x-jobhunt-ext": await token(), ...(body ? { "content-type": "application/json" } : {}) },
@@ -41,9 +58,15 @@ async function call(path, method = "GET", body) {
     });
     const data = await res.json().catch(() => ({}));
     return res.ok ? { ok: true, data } : { ok: false, status: res.status, error: data.error || `Jobhunt answered ${res.status}.` };
-  } catch {
+  };
+  try {
+    return await ask();
+  } catch (e) {
+    if (e && (e.name === "TimeoutError" || e.name === "AbortError")) return { ok: false, status: 0, error: "Jobhunt is busy reading job boards and did not answer. Try again in a moment." };
+    // The app may have been reopened on another port: look for it once and ask again.
     base = null;
-    return { ok: false, status: 0, error: "Jobhunt is not open on this computer." };
+    if (!(await status()).running) return { ok: false, status: 0, error: "Jobhunt is not open on this computer." };
+    try { return await ask(); } catch { return { ok: false, status: 0, error: "Jobhunt did not answer. Try again in a moment." }; }
   }
 }
 

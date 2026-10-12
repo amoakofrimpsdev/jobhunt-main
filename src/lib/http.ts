@@ -2,6 +2,8 @@
 // second to any one host, however many boards are being read at once.
 const USER_AGENT = "jobhunt/0.3 (personal job search; no personal data)";
 const nextSlot = new Map<string, number>();
+/** Hosts that ask for a slower pace than one request a second. */
+const PACE_MS: Record<string, number> = { "apply.careers.microsoft.com": 3000 };
 
 /** The board is gone (404): the employer moved, or the posting closed between the list and its page. */
 export class NotFound extends Error {}
@@ -9,12 +11,25 @@ export class NotFound extends Error {}
 async function ask(url: string, init: RequestInit, accept: string, timeoutMs: number): Promise<Response> {
   const host = new URL(url).host;
   const at = Math.max(Date.now(), nextSlot.get(host) ?? 0);
-  nextSlot.set(host, at + 1000);
+  nextSlot.set(host, at + (PACE_MS[host] ?? 1000));
   if (at > Date.now()) await new Promise((r) => setTimeout(r, at - Date.now()));
-  const res = await fetch(url, {
+  const send = () => fetch(url, {
     ...init, headers: { "User-Agent": USER_AGENT, Accept: accept, ...(init.body ? { "Content-Type": "application/json" } : {}) },
     signal: AbortSignal.timeout(timeoutMs), cache: "no-store", redirect: "follow",
   });
+  // A dropped connection ("fetch failed") is often a passing thing when many boards are read at once: ask once more.
+  let res = await send().catch(async (e) => {
+    if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e;
+    await new Promise((r) => setTimeout(r, 2000));
+    return send();
+  });
+  // "Too many requests": the host wants a slower pace. Hold everything to that host back, then ask again, a few times.
+  for (const wait of [10_000, 30_000, 60_000]) {
+    if (res.status !== 429) break;
+    nextSlot.set(host, Math.max(nextSlot.get(host) ?? 0, Date.now() + wait));
+    await new Promise((r) => setTimeout(r, wait));
+    res = await send();
+  }
   if (res.status === 404 || res.status === 410) throw new NotFound("The board was not found (404). The employer may have moved to another provider.");
   if (!res.ok) throw new Error(`The board answered ${res.status}.`);
   return res;

@@ -20,6 +20,15 @@ export function ago(iso: string | null): string {
   return `${Math.round(s / (86_400 * 365))}y ago`;
 }
 
+/**
+ * When a posting went up, in words. The board's own date when it gives one; "Found 2h ago" when the posting turned
+ * up on a board already being followed; and nothing at all when it was simply there on the board's first read.
+ */
+export function postedLabel(j: { postedAt: string | null; firstSeenAt: string; seenNew: boolean }): string {
+  if (j.postedAt) return ago(j.postedAt);
+  return j.seenNew ? `Found ${ago(j.firstSeenAt)}` : "Date not given";
+}
+
 const short = (n: number) => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(Math.round(n)));
 
 export function payLabel(j: Pick<JobCard, "payMin" | "payMax" | "payCurrency" | "payPeriod">): string | null {
