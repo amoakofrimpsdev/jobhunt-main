@@ -8,6 +8,7 @@ import { arr, getJson, getText, iso, NotFound, num, obj, postJson, str } from ".
 import { decodeEntities } from "./text";
 import type { Listing } from "./sources";
 import type { Ats, RawJob, WorkModel } from "./types";
+import { nhs, nhsDetail, personio, smartrecruiters, smartrecruitersDetail, teamtailor } from "./sources-uk";
 
 /** Postings read in full on one run of one board (one request each). */
 const DETAILS_PER_RUN = 60;
@@ -15,36 +16,38 @@ const DETAILS_PER_RUN = 60;
 const WORK_MS = 150_000;
 
 /** One employer's whole careers site holds thousands of postings: it may read more of them, for longer, on a run. */
-const SITE_LIMITS = { details: 600, ms: 20 * 60_000 };
+export const SITE_LIMITS = { details: 600, ms: 20 * 60_000 };
 
-const SLOW: ReadonlySet<Ats> = new Set<Ats>(["workday", "icims", "oracle", "jazzhr", "bamboohr", "amazon", "microsoft", "apple", "meta"]);
+const SLOW: ReadonlySet<Ats> = new Set<Ats>(["workday", "icims", "oracle", "jazzhr", "bamboohr", "amazon", "microsoft", "apple", "meta", "smartrecruiters", "nhs"]);
+/** Providers that serve every employer from one host: their boards are read one after another, not side by side. */
+export const SHARED_HOST: ReadonlySet<Ats> = new Set<Ats>(["smartrecruiters"]);
 /** A provider that needs many requests for one board. Its boards are read once a day, not on every refresh. */
 export const isSlowAts = (ats: Ats): boolean => SLOW.has(ats);
 
-const text = (v: unknown): string => (typeof v === "string" ? decodeEntities(v.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim() : "");
-const distinct = (xs: string[]) => [...new Map(xs.filter(Boolean).map((x) => [x.toLowerCase(), x])).values()];
-const place = (...parts: unknown[]) => distinct(parts.map((p) => text(p))).join(", ");
+export const text = (v: unknown): string => (typeof v === "string" ? decodeEntities(v.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim() : "");
+export const distinct = (xs: string[]) => [...new Map(xs.filter(Boolean).map((x) => [x.toLowerCase(), x])).values()];
+export const place = (...parts: unknown[]) => distinct(parts.map((p) => text(p))).join(", ");
 const SUBDOMAIN = /^[a-z0-9][a-z0-9-]{0,80}$/;
 
-function subdomain(provider: string, slug: string): string {
+export function subdomain(provider: string, slug: string): string {
   const s = slug.trim().toLowerCase();
   if (!SUBDOMAIN.test(s)) throw new Error(`"${slug}" is not a ${provider} board name.`);
   return s;
 }
 
-function base(id: string, url: string, title: string, company: string, location: string): RawJob {
+export function base(id: string, url: string, title: string, company: string, location: string): RawJob {
   return {
     externalId: id, url, applyUrl: "", title, company, location, descriptionHtml: "", workModel: /^\s*remote\s*$/i.test(location) ? "remote" : null,
     employmentType: null, department: "", postedAt: null, countryCode: null, pay: null,
   };
 }
 
-type Row = { id: string; fromList: RawJob };
+export type Row = { id: string; fromList: RawJob };
 /** Reads one posting in full, given what the list says about it. One per provider that needs a request per posting. */
-type Detail = (row: Row) => Promise<RawJob | null>;
+export type Detail = (row: Row) => Promise<RawJob | null>;
 
 /** Reads the new postings of a list in full, within the per-run limits. */
-async function incremental(rows: Row[], known: Set<string>, started: number, partial: boolean, detail: (row: Row) => Promise<RawJob | null>, limits = { details: DETAILS_PER_RUN, ms: WORK_MS }): Promise<Listing> {
+export async function incremental(rows: Row[], known: Set<string>, started: number, partial: boolean, detail: (row: Row) => Promise<RawJob | null>, limits = { details: DETAILS_PER_RUN, ms: WORK_MS }): Promise<Listing> {
   const out: Listing = { jobs: [], seenIds: [], partial };
   let details = limits.details;
   let read = 0;
@@ -165,7 +168,8 @@ function workdayDetail(slug: string, company: string): Detail {
     return {
       ...row.fromList,
       title: text(i.title) || row.fromList.title,
-      company: weak && org ? org : company,
+      // The posting's own spelling of the same name wins ("houstonmethodist" from a list becomes "Houston Methodist").
+      company: org && (weak || org.toLowerCase().replace(/[^a-z0-9]/g, "") === company.toLowerCase().replace(/[^a-z0-9]/g, "")) ? org : company,
       location: places.join("; ") || row.fromList.location,
       descriptionHtml: str(i.jobDescription),
       workModel: workdayMode(str(i.remoteType), places),
@@ -415,9 +419,9 @@ async function bamboohr(slug: string, company: string, known: Set<string>): Prom
 const AMAZON = "https://www.amazon.jobs";
 const AMAZON_CAP = 10_000;
 
-const heading = (title: string, html: string) => (html ? `<h3>${title}</h3>${html}` : "");
+export const heading = (title: string, html: string) => (html ? `<h3>${title}</h3>${html}` : "");
 /** A date a site gives in words or without a time zone can land a few hours ahead: never later than now. */
-const notAfterNow = (d: string | null) => (d && Date.parse(d) > Date.now() ? new Date().toISOString() : d);
+export const notAfterNow = (d: string | null) => (d && Date.parse(d) > Date.now() ? new Date().toISOString() : d);
 
 async function amazon(company: string, known: Set<string>): Promise<Listing> {
   const started = Date.now();
@@ -598,6 +602,10 @@ async function meta(company: string, known: Set<string>): Promise<Listing> {
 
 export function fetchOther(ats: Ats, slug: string, company: string, known: Set<string>): Promise<Listing> {
   switch (ats) {
+    case "smartrecruiters": return smartrecruiters(slug, company, known);
+    case "personio": return personio(slug, company);
+    case "teamtailor": return teamtailor(slug, company);
+    case "nhs": return nhs(known);
     case "amazon": return amazon(company, known);
     case "microsoft": return microsoft(company, known);
     case "apple": return apple(company, known);
@@ -619,7 +627,8 @@ export function fetchOther(ats: Ats, slug: string, company: string, known: Set<s
 export async function fetchPosting(ats: Ats, slug: string, company: string, fromList: RawJob): Promise<RawJob | null> {
   const detail: Detail | null =
     ats === "workday" ? workdayDetail(slug, company) : ats === "icims" ? pageDetail(slug, company, "?in_iframe=1") : ats === "jazzhr" ? pageDetail(slug, company)
-    : ats === "oracle" ? oracleDetail(slug) : ats === "bamboohr" ? bamboohrDetail(slug) : ats === "microsoft" ? microsoftDetail : ats === "apple" ? appleDetail : null;
+    : ats === "oracle" ? oracleDetail(slug) : ats === "bamboohr" ? bamboohrDetail(slug) : ats === "microsoft" ? microsoftDetail : ats === "apple" ? appleDetail
+    : ats === "smartrecruiters" ? smartrecruitersDetail(slug) : ats === "nhs" ? nhsDetail : null;
   if (!detail) return null;
   const job = await detail({ id: fromList.externalId, fromList });
   return job && job.descriptionHtml ? job : null;

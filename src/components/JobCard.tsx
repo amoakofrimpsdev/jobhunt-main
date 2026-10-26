@@ -37,7 +37,12 @@ export function VisaBadges({ job }: { job: Job }) {
         </span>
       )}
       {!job.blocker && job.sponsorship === "yes" && <span className="badge badge-mint"><ShieldCheck size={12} />Says it sponsors</span>}
-      {!job.blocker && job.h1bFilings > 0 && (
+      {!job.blocker && job.ukSponsor && (job.country === "UK" || job.country === "US_UK") && (
+        <span className="badge badge-mint" title="On the Home Office register of licensed sponsors, matched by name: the employer can sponsor a Skilled Worker visa">
+          UK sponsor licence
+        </span>
+      )}
+      {!job.blocker && job.h1bFilings > 0 && job.country !== "UK" && job.country !== "other" && (
         <span className="badge badge-mint" title={`${job.h1bFilings.toLocaleString()} certified H-1B filings in US Department of Labor data`}>
           H-1B filer · {job.h1bFilings.toLocaleString()}
         </span>
@@ -48,35 +53,37 @@ export function VisaBadges({ job }: { job: Job }) {
   );
 }
 
-export function JobCard({ job, onOpen, onTrack, index = 0 }: {
+export function JobCard({ job, onOpen, onTrack }: {
   job: Job;
   onOpen: (id: string) => void;
   onTrack: (id: string, status: TrackStatus | null) => void;
-  index?: number;
 }) {
   const pay = payLabel(job);
   const saved = job.status === "saved";
   return (
     <article
-      className="card group flex animate-rise cursor-pointer gap-3 p-4 sm:gap-4 sm:p-5 transition-[border-color,box-shadow] hover:border-ink/25 hover:shadow-[0_6px_24px_-12px_rgb(10_10_10/0.25)]"
-      style={{ animationDelay: `${Math.min(index, 10) * 30}ms` }}
+      // A short fade only: the list is redrawn on every filter change, and a staggered entrance made each one feel slow.
+      className="card group flex animate-fade cursor-pointer gap-3 p-4 sm:gap-4 sm:p-5 transition-[border-color,box-shadow] hover:border-ink/25 hover:shadow-[0_6px_24px_-12px_rgb(10_10_10/0.25)]"
       // A click on a button or link inside the card is that control's own. It is left to travel on (not stopped), since
       // the desktop app opens links in the browser from a listener on the window.
       onClick={(e) => { if (!(e.target as HTMLElement).closest("a, button")) onOpen(job.id); }}
     >
-      <MatchRing match={job.match} />
+      {/* A smaller ring on a phone leaves room for the title. */}
+      <div className="sm:hidden"><MatchRing match={job.match} size={44} /></div>
+      <div className="hidden sm:block"><MatchRing match={job.match} /></div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-[17px] font-semibold leading-snug text-ink">
+            <h3 className="line-clamp-2 text-[16px] font-semibold leading-snug text-ink sm:truncate sm:text-[17px]">
               <button className="text-left hover:underline" onClick={() => onOpen(job.id)}>{job.title}</button>
             </h3>
             <p className="mt-0.5 truncate text-[14px] text-body">
               <span className="font-medium text-ink">{job.company}</span>
               {job.location && <span className="text-muted"> · {job.location}</span>}
             </p>
+            <p className="mt-0.5 text-[12px] text-muted-soft sm:hidden">{postedLabel(job)}</p>
           </div>
-          <span className="shrink-0 pt-1 text-[12px] text-muted-soft">{postedLabel(job)}</span>
+          <span className="hidden shrink-0 pt-1 text-[12px] text-muted-soft sm:block">{postedLabel(job)}</span>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {job.match && <span className="badge" style={{ background: BAND[job.match.band].track, color: "#0a0a0a" }}>{BAND[job.match.band].label} match</span>}

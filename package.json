@@ -1,6 +1,6 @@
 {
   "name": "jobhunt",
-  "version": "0.3.2",
+  "version": "0.3.8",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -10,7 +10,10 @@
     "typecheck": "tsc --noEmit",
     "data": "node scripts/build-data.mjs",
     "dmg": "bash scripts/build-dmg.sh",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "data:uk-sponsors": "node --import tsx scripts/build-uk-sponsors.mts",
+    "exe": "bash scripts/build-windows.sh",
+    "test:perf": "node --import tsx --test --test-timeout=600000 tests/perf/*.perf.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.0",
@@ -18,6 +21,7 @@
     "lucide-react": "^1.28.0",
     "next": "16.2.12",
     "pdf-parse": "^2.4.5",
+    "qrcode": "1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.6.0"
@@ -26,10 +30,12 @@
     "@tailwindcss/postcss": "^4",
     "@tauri-apps/cli": "^2.12.1",
     "@types/node": "^24.19.1",
+    "@types/qrcode": "1.5.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "postject": "1.0.0-alpha.6",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"

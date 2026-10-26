@@ -8,7 +8,7 @@ import { JobDrawer } from "@/components/JobDrawer";
 import { api, REFRESHED_EVENT } from "@/lib/client";
 import type { RefreshStatus } from "@/lib/ingest";
 import type { Feed } from "@/lib/store";
-import { ATS_LABEL, LEVEL_LABEL, type Ats, type Level, type TrackStatus, type WorkModel } from "@/lib/types";
+import { ATS_LABEL, LEVEL_LABEL, REGION_LABEL, type Ats, type Level, type Region, type TrackStatus, type WorkModel } from "@/lib/types";
 
 type Filters = {
   q: string;
@@ -17,7 +17,8 @@ type Filters = {
   days: number;
   sort: "recommended" | "score" | "newest";
   // null = follow the profile.
-  us: boolean | null;
+  /** null: follow the profile. */
+  region: Region | null;
   hideBlocked: boolean | null;
   h1b: boolean;
   everify: boolean;
@@ -30,16 +31,16 @@ type Filters = {
 
 // Boards where applying is one page with no account to create. Workday, iCIMS and Oracle ask for a sign-in and
 // several steps.
-const QUICK_APPLY: Ats[] = ["greenhouse", "lever", "ashby", "workable"];
-const BOARDS: Ats[] = ["greenhouse", "lever", "ashby", "workable", "workday", "icims", "oracle", "bamboohr", "jazzhr", "amazon", "microsoft", "apple", "meta"];
+const QUICK_APPLY: Ats[] = ["greenhouse", "lever", "ashby", "workable", "smartrecruiters", "personio", "teamtailor"];
+const BOARDS: Ats[] = ["greenhouse", "lever", "ashby", "workable", "workday", "icims", "oracle", "bamboohr", "jazzhr", "smartrecruiters", "personio", "teamtailor", "amazon", "microsoft", "apple", "meta", "nhs"];
 const sameSet = (a: Ats[], b: Ats[]) => a.length === b.length && a.every((x) => b.includes(x));
 
-const DEFAULTS: Filters = { q: "", work: [], level: [], days: 0, sort: "recommended", us: null, hideBlocked: null, h1b: false, everify: false, capExempt: false, pay: false, minScore: 0, ats: [] };
+const DEFAULTS: Filters = { q: "", work: [], level: [], days: 0, sort: "recommended", region: null, hideBlocked: null, h1b: false, everify: false, capExempt: false, pay: false, minScore: 0, ats: [] };
 const STORE_KEY = "jobhunt.filters.v1";
 const PAGE = 40;
 
 type FeedResponse = Feed & {
-  applied: { usOnly: boolean; hideBlocked: boolean };
+  applied: { region: Region; hideBlocked: boolean };
   refresh: RefreshStatus;
   profile: { ready: boolean; name: string; needsSponsorship: boolean };
 };
@@ -50,7 +51,7 @@ function query(f: Filters, limit: number): string {
   if (f.work.length) p.set("work", f.work.join(","));
   if (f.level.length) p.set("level", f.level.join(","));
   if (f.days) p.set("days", String(f.days));
-  if (f.us !== null) p.set("us", f.us ? "1" : "0");
+  if (f.region !== null) p.set("region", f.region);
   if (f.hideBlocked !== null) p.set("hideBlocked", f.hideBlocked ? "1" : "0");
   if (f.h1b) p.set("h1b", "1");
   if (f.everify) p.set("everify", "1");
@@ -71,11 +72,11 @@ function Toggle({ on, onClick, children, title }: { on: boolean; onClick: () => 
 
 function Stat({ value, label, className, children }: { value: string; label: string; className: string; children?: React.ReactNode }) {
   return (
-    <div className={`relative overflow-hidden rounded-xl p-6 ${className}`}>
+    <div className={`relative overflow-hidden rounded-xl p-4 sm:p-6 ${className}`}>
       <span className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/15" />
       <span className="pointer-events-none absolute -bottom-12 right-10 h-24 w-24 rounded-full bg-black/5" />
-      <p className="display relative text-[44px] !text-current">{value}</p>
-      <p className="relative mt-1 text-[14px] font-medium opacity-90">{label}</p>
+      <p className="display relative text-[30px] !text-current sm:text-[44px]">{value}</p>
+      <p className="relative mt-1 text-[13px] font-medium leading-snug opacity-90 sm:text-[14px]">{label}</p>
       {children}
     </div>
   );
@@ -121,10 +122,15 @@ export default function Home() {
           setFilters({
             ...DEFAULTS, q: p.get("q") ?? "", work: list("work") as WorkModel[], level: list("level") as Level[], minScore: Number(p.get("minScore")) || 0, ats: list("ats") as Ats[],
             h1b: p.get("h1b") === "1", everify: p.get("everify") === "1", capExempt: p.get("capExempt") === "1", pay: p.get("pay") === "1",
-            us: p.has("us") ? p.get("us") === "1" : null, hideBlocked: p.has("hideBlocked") ? p.get("hideBlocked") === "1" : null,
+            region: (p.get("region") as Region | null) ?? (p.has("us") ? (p.get("us") === "1" ? "us" : "any") : null), hideBlocked: p.has("hideBlocked") ? p.get("hideBlocked") === "1" : null,
           });
           window.history.replaceState(null, "", "/");
-        } else if (saved) setFilters({ ...DEFAULTS, ...saved, q: "" });
+        } else if (saved) {
+          // Filters saved before the UK was added say only whether the feed was limited to the United States.
+          const old = (saved as { us?: boolean | null }).us;
+          const region = saved.region ?? (old === true ? "us" : old === false ? "any" : null);
+          setFilters({ ...DEFAULTS, ...saved, region, q: "" });
+        }
       } catch {
         // Unreadable saved filters fall back to the defaults.
       }
@@ -133,7 +139,10 @@ export default function Home() {
     return () => clearTimeout(t);
   }, []);
 
+  const lastLoad = useRef(0);
   const load = useCallback(async () => {
+    // Remembered so that the progress ticks of a refresh started by this very load do not load the list again.
+    lastLoad.current = Date.now();
     try {
       const d = await api<FeedResponse>(`/api/jobs?${query(filters, limit)}`);
       setData(d);
@@ -154,14 +163,13 @@ export default function Home() {
   useEffect(() => {
     if (!ready) return;
     localStorage.setItem(STORE_KEY, JSON.stringify(filters));
-    const t = setTimeout(load, filters.q ? 220 : 0);
+    const t = setTimeout(load, filters.q ? 150 : 0);
     return () => clearTimeout(t);
   }, [ready, filters, load]);
 
   // While boards are being read the header reports progress every few seconds. The list is not redrawn on each of
   // those: it would shift under the reader. It is read again at most every twenty seconds, never while a job is
   // open, and once more when the run ends.
-  const lastLoad = useRef(0);
   const openRef = useRef<string | null>(null);
   useEffect(() => {
     const onProgress = (e: Event) => {
@@ -185,7 +193,8 @@ export default function Home() {
     void load();
   }
 
-  const usOnly = filters.us ?? data?.applied.usOnly ?? false;
+  const region: Region = filters.region ?? data?.applied.region ?? "any";
+  const sponsorLabel = region === "us" ? "H-1B filer" : region === "uk" ? "UK sponsor" : "Visa sponsor";
   const hideBlocked = filters.hideBlocked ?? data?.applied.hideBlocked ?? false;
   const active = filters.work.length + filters.level.length + (filters.days ? 1 : 0) + [filters.h1b, filters.everify, filters.capExempt, filters.pay].filter(Boolean).length + (filters.minScore ? 1 : 0) + (filters.ats.length ? 1 : 0);
   const reading = data?.refresh.running ?? false;
@@ -195,7 +204,7 @@ export default function Home() {
       <section className="pt-12">
         <p className="eyebrow text-muted">Your job feed</p>
         <h1 className="display mt-3 text-[38px] sm:text-[56px]">{greeting(data?.profile.name ?? "")}</h1>
-        <p className="mt-3 max-w-2xl text-[16px] text-body">
+        <p className="mt-3 max-w-2xl text-[15px] text-body sm:text-[16px]">
           {data
             ? data.openJobs > 0
               ? `${data.openJobs.toLocaleString()} open jobs from ${data.employers} employers, read straight from their own job boards. Nothing here came from an aggregator, and closed postings drop out on the next read.`
@@ -203,7 +212,7 @@ export default function Home() {
             : "Loading your feed…"}
         </p>
 
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-6 grid grid-cols-2 gap-3 sm:mt-8 sm:gap-4 lg:grid-cols-4">
           <Stat value={(data?.strong ?? 0).toLocaleString()} label="Strong matches for you" className="bg-pink text-white">
             {data && !data.profile.ready && (
               <Link href="/profile" className="relative mt-3 inline-flex items-center gap-1 text-[13px] font-semibold underline">Add a profile to score jobs <ArrowRight size={13} /></Link>
@@ -211,15 +220,15 @@ export default function Home() {
           </Stat>
           <Stat value={(data?.newToday ?? 0).toLocaleString()} label="New in the last 24 hours" className="bg-lavender text-ink" />
           <Stat value={(data?.total ?? 0).toLocaleString()} label="Match your filters" className="bg-ochre text-ink" />
-          <div className="relative overflow-hidden rounded-xl bg-teal p-6 text-white">
+          <div className="relative overflow-hidden rounded-xl bg-teal p-4 text-white sm:p-6">
             <span className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-mint/20" />
             <div className="relative flex items-center gap-2 text-[13px] font-semibold text-mint"><ShieldCheck size={16} /> Sponsorship lens</div>
-            <p className="relative mt-3 text-[14px] leading-snug text-white/85">
+            <p className="relative mt-2 text-[13px] leading-snug text-white/85 sm:mt-3 sm:text-[14px]">
               {hideBlocked
                 ? `Hiding ${(data?.blocked ?? 0).toLocaleString()} jobs that ask for citizenship or a clearance, or say they will not sponsor.`
                 : `${(data?.blocked ?? 0).toLocaleString()} jobs ask for citizenship or a clearance, or say they will not sponsor.`}
             </p>
-            <button className="relative mt-4 inline-flex h-8 items-center rounded-md bg-canvas px-3 text-[13px] font-semibold text-ink" onClick={() => set({ hideBlocked: !hideBlocked })}>
+            <button className="relative mt-3 inline-flex h-8 items-center rounded-md bg-canvas px-3 text-[13px] font-semibold text-ink sm:mt-4" onClick={() => set({ hideBlocked: !hideBlocked })}>
               {hideBlocked ? "Show them" : "Hide them"}
             </button>
           </div>
@@ -247,21 +256,26 @@ export default function Home() {
         {alertName !== null && (
           <form className="mt-3 flex animate-rise flex-wrap items-center gap-2 rounded-lg bg-lavender p-4 text-ink" onSubmit={(e) => { e.preventDefault(); void saveAlert(); }}>
             <span className="text-[13px] font-semibold">Tell me when new jobs match the search and filters above. Name it:</span>
-            <input className="field !h-10 max-w-xs" autoFocus value={alertName} onChange={(e) => setAlertName(e.target.value)} placeholder="Remote data analyst, H-1B filers" aria-label="Alert name" />
+            <input className="field !h-10 max-w-xs" autoFocus value={alertName} onChange={(e) => setAlertName(e.target.value)} placeholder="Remote data analyst, visa sponsors" aria-label="Alert name" />
             <button className="btn btn-primary !h-10">Save alert</button>
             <button type="button" className="btn btn-quiet !h-10" onClick={() => setAlertName(null)}>Cancel</button>
           </form>
         )}
         {alertSaved && <p className="mt-3 text-[13px] text-ink" role="status">Alert saved. New matches show up on the <Link href="/alerts" className="font-semibold underline">Alerts</Link> page after each refresh.</p>}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Toggle on={usOnly} onClick={() => set({ us: !usOnly })}>United States</Toggle>
+          <label className="pill border border-ink" title="The countries the feed shows. A job that names no country is shown with the United States, not with the UK alone.">
+            <span className="sr-only">Countries</span>
+            <select className="cursor-pointer bg-transparent font-semibold outline-none" value={region} onChange={(e) => set({ region: e.target.value as Region })}>
+              {(Object.keys(REGION_LABEL) as Region[]).map((r) => <option key={r} value={r}>{REGION_LABEL[r]}</option>)}
+            </select>
+          </label>
           <Toggle on={filters.work.includes("remote")} onClick={() => set({ work: flip(filters.work, "remote") })}>Remote</Toggle>
-          <Toggle on={filters.h1b} onClick={() => set({ h1b: !filters.h1b })} title="The employer has recent certified H-1B filings and the posting names no visa limit">H-1B filer</Toggle>
+          <Toggle on={filters.h1b} onClick={() => set({ h1b: !filters.h1b })} title={region === "uk" ? "The employer is on the Home Office register of licensed sponsors and the posting names no visa limit" : region === "us" ? "The employer has recent certified H-1B filings and the posting names no visa limit" : "The employer has H-1B filings (US jobs) or a UK sponsor licence (UK jobs), and the posting names no visa limit"}>{sponsorLabel}</Toggle>
           <Toggle on={filters.capExempt} onClick={() => set({ capExempt: !filters.capExempt })} title="Universities and research nonprofits, which sponsor outside the lottery">Cap-exempt</Toggle>
           <Toggle on={filters.everify} onClick={() => set({ everify: !filters.everify })} title="The posting says the employer uses E-Verify, which a STEM OPT extension needs">E-Verify</Toggle>
           <Toggle on={filters.days === 3} onClick={() => set({ days: filters.days === 3 ? 0 : 3 })}>Last 3 days</Toggle>
           <Toggle on={filters.pay} onClick={() => set({ pay: !filters.pay })}>Pay listed</Toggle>
-          <Toggle on={sameSet(filters.ats, QUICK_APPLY)} onClick={() => set({ ats: sameSet(filters.ats, QUICK_APPLY) ? [] : QUICK_APPLY })} title="Only Greenhouse, Lever, Ashby and Workable: one page, no account to create">Quick apply</Toggle>
+          <Toggle on={sameSet(filters.ats, QUICK_APPLY)} onClick={() => set({ ats: sameSet(filters.ats, QUICK_APPLY) ? [] : QUICK_APPLY })} title="Only Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Personio and Teamtailor: one page, no account to create">Quick apply</Toggle>
         </div>
         {moreFilters && (
           <div className="mt-4 grid animate-rise gap-5 rounded-lg bg-surface-card p-5 md:grid-cols-4">
@@ -312,7 +326,7 @@ export default function Home() {
         {error && <p className="rounded-lg bg-[#ffe0dc] px-4 py-3 text-[14px] text-[#8a1f14]">{error}</p>}
 
         {data && !data.profile.ready && data.openJobs > 0 && (
-          <div className="mb-4 flex flex-wrap items-center gap-4 rounded-xl bg-peach p-6 text-ink">
+          <div className="mb-4 flex flex-col items-start gap-4 rounded-xl bg-peach p-5 text-ink sm:flex-row sm:items-center sm:p-6">
             <div className="min-w-0 flex-1">
               <h2 className="display text-[24px]">These jobs are not ranked yet.</h2>
               <p className="mt-1 text-[14px]">Upload your resume or type a target title and a few skills. Jobhunt scores every job against it on this computer, with no AI key and nothing uploaded.</p>
@@ -332,13 +346,13 @@ export default function Home() {
               {data.openJobs === 0 ? "This takes about a minute the first time." : "Loosen a filter, or clear them all to see everything again."}
             </p>
             {data.openJobs > 0 && (
-              <button className="btn btn-primary mt-6" onClick={() => set({ ...DEFAULTS, us: false, hideBlocked: false })}><X size={15} /> Clear filters</button>
+              <button className="btn btn-primary mt-6" onClick={() => set({ ...DEFAULTS, region: "any", hideBlocked: false })}><X size={15} /> Clear filters</button>
             )}
           </div>
         )}
 
         <div className="space-y-3">
-          {data?.jobs.map((job, i) => <JobCard key={job.id} job={job} index={i} onOpen={setOpen} onTrack={onTrack} />)}
+          {data?.jobs.map((job) => <JobCard key={job.id} job={job} onOpen={setOpen} onTrack={onTrack} />)}
         </div>
 
         {data && data.jobs.length < data.total && (

@@ -29,7 +29,46 @@ export function h1bWindow(): { from: string; to: string } {
 
 /** Certified H-1B labor condition applications the employer filed in the table's window. 0 = none found. */
 export function h1bFilings(company: string): number {
-  return h1b().counts[companyKey(company)] ?? 0;
+  // Only the table's own entries: a company named "Constructor" or "toString" must not find the object's built-ins.
+  const counts = h1b().counts;
+  const key = companyKey(company);
+  const n = Object.hasOwn(counts, key) ? counts[key] : 0;
+  return typeof n === "number" ? n : 0;
+}
+
+// The Home Office register of licensed sponsors (data/uk-sponsors.json): employers that may sponsor a Skilled Worker
+// visa. Employers register under their legal name ("Monzo Bank Limited") and post jobs under their trading name
+// ("Monzo"), so both sides are also matched without trailing words like "Bank", "Group" or "UK".
+const GENERIC_TAIL = new Set(["uk", "gb", "bank", "group", "holdings", "holding", "technologies", "technology", "tech", "services", "europe", "emea", "international", "global", "digital", "solutions", "software", "labs", "trading", "ventures", "operations", "london", "payments", "retail"]);
+
+/** The keys a name is matched by: its company key, and the same without generic trailing words. */
+export function sponsorKeys(name: string): string[] {
+  const full = companyKey(name);
+  const words = String(name ?? "").toLowerCase().replace(/[&+]/g, " and ").replace(/['’`.]/g, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+    .filter((w) => !LEGAL.has(w));
+  while (words.length > 1 && GENERIC_TAIL.has(words[words.length - 1])) words.pop();
+  const short = companyKey(words.join(" "));
+  return [...new Set([full, short].filter((k) => k.length >= 3))];
+}
+
+type UkTable = { source: string; date: string; keys: string[] };
+let uk: Set<string> | null = null;
+
+function ukTable(): Set<string> {
+  if (!uk) {
+    try {
+      uk = new Set((JSON.parse(readFileSync(join(process.cwd(), "data", "uk-sponsors.json"), "utf8")) as UkTable).keys);
+    } catch {
+      uk = new Set();
+    }
+  }
+  return uk;
+}
+
+/** On the Home Office register of licensed sponsors for Skilled Worker visas, by name. A name is not proof. */
+export function ukSponsorLikely(company: string): boolean {
+  const t = ukTable();
+  return sponsorKeys(company).some((k) => t.has(k));
 }
 
 // Cap-exempt employers (universities, their hospitals, nonprofit and government research labs) can file H-1B

@@ -9,15 +9,19 @@ import { isDocumentKind, saveDocument } from "./documents";
 import { listResumes, resumeFits } from "./resumes";
 import { dataDir, db, feed, getProfile, jobDetail, jobScoringFacts, track } from "./store";
 import { skillName } from "./taxonomy";
-import { DOCUMENT_LABEL, LEVEL_LABEL, TRACK_STATUSES, type DocumentKind, type JobCard, type TrackStatus } from "./types";
+import { DOCUMENT_LABEL, LEVEL_LABEL, REGION_LABEL, TRACK_STATUSES, type DocumentKind, type JobCard, type Region, type TrackStatus } from "./types";
 
 type Args = Record<string, unknown>;
 
 // ---------------------------------------------------------------- Claude Desktop's config
 
-const claudeConfigFile = () => join(homedir(), "Library", "Application Support", "Claude", "claude_desktop_config.json");
+const claudeConfigFile = () =>
+  process.platform === "win32" ? join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), "Claude", "claude_desktop_config.json")
+  : process.platform === "darwin" ? join(homedir(), "Library", "Application Support", "Claude", "claude_desktop_config.json")
+  : join(homedir(), ".config", "Claude", "claude_desktop_config.json");
 
-/** The command Claude Desktop runs: this very Node (in the app, its bundled copy) and the connector beside the app. */
+/** The command Claude Desktop runs: this very Node (in the app, its bundled copy; on Windows, Jobhunt.exe, which runs
+ *  the connector when given it) and the connector beside the app. */
 function command(): { command: string; args: string[] } {
   return { command: process.execPath, args: [join(process.cwd(), "mcp", "jobhunt-mcp.cjs"), dataDir()] };
 }
@@ -76,6 +80,14 @@ const str = (v: unknown) => (typeof v === "string" ? v : "");
 const flag = (v: unknown) => (typeof v === "boolean" ? v : undefined);
 
 /** Runs one connector tool and answers in plain text for Claude to read. Throws with a message Claude can relay. */
+/** "region" ("us", "uk", "us_uk", "any"), or the older "us_only" flag. */
+function regionArg(args: Args): Region | null {
+  const r = str(args.region) as Region;
+  if (["us", "uk", "us_uk", "any"].includes(r)) return r;
+  const us = flag(args.us_only);
+  return us === undefined ? null : us ? "us" : "any";
+}
+
 export function runTool(tool: string, args: Args): string {
   switch (tool) {
     case "search_jobs": {
@@ -83,7 +95,7 @@ export function runTool(tool: string, args: Args): string {
       const sort = str(args.sort);
       const r = feed({
         q: str(args.query), workModels: args.remote_only === true ? ["remote"] : [],
-        usOnly: flag(args.us_only) ?? profile.usOnly, hideBlocked: flag(args.hide_visa_blockers) ?? profile.needsSponsorship,
+        region: regionArg(args) ?? profile.region, hideBlocked: flag(args.hide_visa_blockers) ?? profile.needsSponsorship,
         h1bOnly: args.h1b_filer_only === true, postedWithinDays: Number(args.posted_within_days) || undefined,
         minScore: Number(args.min_match) || undefined, sort: sort === "score" || sort === "newest" ? sort : "recommended",
         limit: Math.max(1, Math.min(30, Number(args.limit) || 12)),
@@ -117,7 +129,7 @@ export function runTool(tool: string, args: Args): string {
         `Name: ${p.name || "not set"}`, `Target titles: ${p.targetTitles.join(", ") || "none"}`,
         `Skills: ${p.skills.map(skillName).join(", ") || "none"}`, `Years of experience: ${p.years ?? "not set"}`,
         `Level: ${p.level ? LEVEL_LABEL[p.level] : "from years"}`, `Needs visa sponsorship: ${p.needsSponsorship ? "yes" : "no"}`,
-        `United States jobs only: ${p.usOnly ? "yes" : "no"}`,
+        `Countries shown: ${REGION_LABEL[p.region]}`,
       ].join("\n");
     }
     case "list_resumes": {

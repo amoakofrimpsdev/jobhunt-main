@@ -4,7 +4,8 @@ import Link from "next/link";
 import { ArrowRight, Check, FileUp, FolderOpen, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/client";
-import { EMPTY_PROFILE, LEVEL_LABEL, LEVELS, type Level, type Profile, type Resume } from "@/lib/types";
+import { EMPTY_PROFILE, LEVEL_LABEL, LEVELS, REGION_LABEL, type Level, type Profile, type Region, type Resume } from "@/lib/types";
+import { RESUME_FOLDER_EXAMPLE, useOs } from "@/lib/os";
 
 type ProfileResponse = { profile: Profile; skillNames: Record<string, string>; scored?: number };
 type Library = { resumes: Resume[]; skillNames: Record<string, string>; folder: string | null; problems?: string[] };
@@ -39,6 +40,7 @@ function Switch({ on, onChange, title, children }: { on: boolean; onChange: (v: 
 }
 
 export default function ProfilePage() {
+  const os = useOs();
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [names, setNames] = useState<Record<string, string>>({});
   const [loaded, setLoaded] = useState(false);
@@ -144,7 +146,7 @@ export default function ProfilePage() {
       setProfile(r.profile);
       setNames(r.skillNames);
       setDirty(false);
-      setNote({ ok: true, text: `Saved. ${(r.scored ?? 0).toLocaleString()} open jobs scored against your profile.`, scored: r.scored });
+      setNote({ ok: true, text: "Saved. Every open job is being scored against it now; the feed takes the new order within a few seconds.", scored: r.scored ?? undefined });
     } catch (e) {
       setNote({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -212,16 +214,20 @@ export default function ProfilePage() {
 
           <section className="grid gap-3 md:grid-cols-2">
             <Switch on={profile.needsSponsorship} onChange={(v) => patch({ needsSponsorship: v })} title="I need visa sponsorship">
-              On F-1 OPT, H-1B or similar. Jobs that ask for citizenship or a clearance, or say they will not sponsor, are held at 20% and hidden by default.
+              On F-1 OPT, H-1B, or needing a UK Skilled Worker visa. Jobs that ask for citizenship or a clearance, or say they will not sponsor, are held at 20% and hidden by default.
             </Switch>
-            <Switch on={profile.usOnly} onChange={(v) => patch({ usOnly: v })} title="United States jobs only">
-              Leaves out jobs whose every location is in another country. A bare “Remote” stays in.
-            </Switch>
+            <div className="card p-5">
+              <label className="font-semibold text-ink" htmlFor="region">Countries</label>
+              <p className="mt-1 text-[13px] text-muted">Which countries’ jobs the feed shows. A job that names no country (a bare “Remote”) is shown with the United States, not with the UK alone. Choosing the UK also starts reading NHS Jobs and the UK employers.</p>
+              <select id="region" className="field mt-3" value={profile.region} onChange={(e) => patch({ region: e.target.value as Region })}>
+                {(Object.keys(REGION_LABEL) as Region[]).map((r) => <option key={r} value={r}>{REGION_LABEL[r]}</option>)}
+              </select>
+            </div>
           </section>
 
           <div className="flex flex-wrap items-center gap-4">
             <button className="btn btn-primary" onClick={save} disabled={busy !== null || !dirty}>
-              {busy === "save" ? "Scoring jobs…" : dirty ? "Save and score jobs" : <><Check size={15} /> Saved</>}
+              {busy === "save" ? "Saving…" : dirty ? "Save and score jobs" : <><Check size={15} /> Saved</>}
             </button>
             {note && (
               <p className={`text-[14px] ${note.ok ? "text-ink" : "text-[#8a1f14]"}`} role="status">
@@ -269,7 +275,7 @@ export default function ProfilePage() {
               <label className="flex items-center gap-2 text-[13px] font-semibold text-mint" htmlFor="folder"><FolderOpen size={15} /> Or watch a folder</label>
               <p className="mt-1 text-[12px] text-white/70">Resumes saved in it show up here by themselves. Jobhunt only reads them.</p>
               <div className="mt-3 flex gap-2">
-                <input id="folder" className="field !h-10" placeholder="~/Documents/Resumes" value={folder} onChange={(e) => setFolder(e.target.value)} />
+                <input id="folder" className="field !h-10" placeholder={RESUME_FOLDER_EXAMPLE[os]} value={folder} onChange={(e) => setFolder(e.target.value)} />
                 <button className="inline-flex h-10 shrink-0 items-center rounded-md bg-canvas px-3 text-[13px] font-semibold text-ink disabled:opacity-60" disabled={busy !== null || folder.trim() === (library.folder ?? "")}>
                   {folder.trim() || !library.folder ? "Watch" : "Stop"}
                 </button>

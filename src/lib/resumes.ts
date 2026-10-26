@@ -69,7 +69,7 @@ export function resumeFolder(): string | null {
  * Changing the folder forgets the resumes that came from the old one.
  */
 export async function setResumeFolder(input: string | null): Promise<{ read: number; problems: string[] }> {
-  const path = input?.trim() ? resolve(input.trim().replace(/^~(?=$|\/)/, homedir())) : null;
+  const path = input?.trim() ? resolve(input.trim().replace(/^~(?=$|[\\/])/, homedir())) : null;
   if (path && !(existsSync(path) && statSync(path).isDirectory())) throw new Error(`${path} is not a folder on this computer.`);
   if (path !== resumeFolder()) {
     db().prepare("DELETE FROM resumes WHERE source = 'folder'").run();

@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { openUrl } from "@/lib/open";
 import { jobBrief } from "@/lib/ai";
 import { claudeDesktopPrompt, connectorStatus, installConnector } from "@/lib/connector";
 import { isDocumentKind } from "@/lib/documents";
@@ -19,9 +19,7 @@ export async function POST(request: Request) {
     const brief = b.jobId ? jobBrief(b.jobId) : null;
     if (!brief || !isDocumentKind(b.kind)) return Response.json({ error: "That job is not in the database." }, { status: 404 });
     const prompt = claudeDesktopPrompt(b.kind, brief);
-    const opened = await new Promise<boolean>((resolve) => {
-      execFile("/usr/bin/open", [`claude://claude.ai/new?q=${encodeURIComponent(prompt)}`], (error) => resolve(!error));
-    });
+    const opened = await openUrl(`claude://claude.ai/new?q=${encodeURIComponent(prompt)}`);
     return Response.json({ prompt, opened, at: Date.now() });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });

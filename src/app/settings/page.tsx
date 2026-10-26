@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/client";
 import type { ConnectorStatus } from "@/lib/connector";
 import type { AiProvider, AiSettings } from "@/lib/types";
+import { KEY_STORE, useOs } from "@/lib/os";
 
 type State = {
   settings: AiSettings;
@@ -17,13 +18,14 @@ type State = {
 
 const PROVIDERS: Array<{ id: AiProvider; name: string; line: string; className: string }> = [
   { id: "none", name: "Off", line: "No AI. Search, scores, resume picks and the tracker never need it.", className: "bg-surface-card" },
-  { id: "local", name: "A model on this computer", line: "Ollama, LM Studio or any OpenAI-compatible server. Nothing leaves the Mac.", className: "bg-mint" },
+  { id: "local", name: "A model on this computer", line: "Ollama, LM Studio or any OpenAI-compatible server. Nothing leaves this computer.", className: "bg-mint" },
   { id: "claude-desktop", name: "Claude Desktop", line: "Claude does the writing in its own window, on your Claude plan, and saves it back here. No key.", className: "bg-lavender" },
   { id: "anthropic", name: "Anthropic API key", line: "Claude, inside Jobhunt. Pay per use on your own key.", className: "bg-peach" },
   { id: "openai", name: "OpenAI API key", line: "GPT, inside Jobhunt. Pay per use on your own key.", className: "bg-ochre" },
 ];
 
 export default function SettingsPage() {
+  const os = useOs();
   const [state, setState] = useState<State | null>(null);
   const [form, setForm] = useState<AiSettings | null>(null);
   const [keys, setKeys] = useState({ anthropic: "", openai: "" });
@@ -93,7 +95,7 @@ export default function SettingsPage() {
           value={keys[name]} onChange={(e) => setKeys({ ...keys, [name]: e.target.value })} />
         {state.keys[name] && <button className="btn btn-quiet btn-sm" onClick={() => save({ [`${name}Key`]: "" })}>Remove key</button>}
       </div>
-      <p className="mt-2 text-[12px] text-ink/70">Kept in the macOS Keychain, never in the database, never shown again, and sent only to {name === "anthropic" ? "Anthropic" : "OpenAI"}.</p>
+      <p className="mt-2 text-[12px] text-ink/70">{KEY_STORE[os]}, never in the database, never shown again, and sent only to {name === "anthropic" ? "Anthropic" : "OpenAI"}.</p>
     </div>
   );
 
@@ -169,7 +171,7 @@ export default function SettingsPage() {
               <button className="btn btn-primary" onClick={addConnector} disabled={busy !== null || state.connector.installed}>
                 {state.connector.installed ? <><Check size={15} /> Added to Claude Desktop</> : busy === "connector" ? "Adding…" : "Add to Claude Desktop"}
               </button>
-              {!state.connector.claudeFound && <span className="text-[13px] text-[#8a1f14]">Claude Desktop does not seem to be installed on this Mac.</span>}
+              {!state.connector.claudeFound && <span className="text-[13px] text-[#8a1f14]">Claude Desktop does not seem to be installed on this computer.</span>}
             </div>
             <p className="mt-3 text-[12px] text-ink/70">This adds one entry named “jobhunt” to {state.connector.configFile}. Your other connectors are kept and the old file is copied beside it first. Jobhunt has to be open for Claude to reach it.</p>
           </>
@@ -185,8 +187,131 @@ export default function SettingsPage() {
           {note && <p className={`text-[14px] ${note.ok ? "text-ink" : "text-[#8a1f14]"}`} role="status">{note.text}</p>}
         </div>
       </section>
+      <Phone />
+      <ReedKey />
       <Details />
     </main>
+  );
+}
+
+type PhoneState = {
+  enabled: boolean; running: boolean; url: string | null; pairUrl: string | null; pairCode: string | null; qr: string | null; error: string | null;
+  phones: Array<{ id: string; name: string; pairedAt: string; lastSeenAt: string }>;
+};
+
+/** Phone access over Wi-Fi (src/lib/phone.ts): the switch, the pairing QR code and the paired phones. */
+function Phone() {
+  const os = useOs();
+  const [state, setState] = useState<PhoneState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const t = setTimeout(() => void api<PhoneState>("/api/phone").then(setState).catch(() => undefined), 0);
+    return () => clearTimeout(t);
+  }, []);
+  async function call(method: "PUT" | "POST", body: unknown) {
+    setBusy(true);
+    setError(null);
+    try { setState(await api<PhoneState>("/api/phone", { method, body: JSON.stringify(body) })); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+  if (!state) return null;
+  const firewall = os === "windows" ? "If Windows Defender Firewall asks about Jobhunt, allow it on private networks." : os === "mac" ? "If macOS asks whether Jobhunt may accept incoming network connections, click Allow." : "If a firewall asks about Jobhunt, allow it on your home network.";
+  return (
+    <section className="mt-12 max-w-3xl">
+      <h2 className="display text-[28px]">Phone</h2>
+      <p className="mt-2 text-[14px] text-body">
+        Use Jobhunt on your phone while it is on the same Wi-Fi as this computer: browse and open jobs, apply, keep the tracker and alerts up to date.
+        This computer does the work, so it has to be on with Jobhunt open. Settings, API keys and the extension stay on this computer.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button className={state.enabled ? "btn btn-secondary" : "btn btn-primary"} disabled={busy} onClick={() => void call("PUT", { enabled: !state.enabled })}>
+          {busy ? "One moment…" : state.enabled ? "Switch off phone access" : "Switch on phone access"}
+        </button>
+        {state.enabled && state.running && <span className="text-[13px] text-muted">{firewall}</span>}
+      </div>
+      {(error ?? state.error) && <p className="mt-3 text-[13px] text-[#8a1f14]" role="alert">{error ?? state.error}</p>}
+      {state.enabled && state.running && state.qr && (
+        <div className="mt-5 grid gap-6 rounded-xl bg-surface-soft p-6 sm:grid-cols-[200px_1fr]">
+          {/* The code is drawn on this computer from the pairing address; it is the only way a phone is let in. */}
+          <div className="w-[200px] rounded-lg bg-paper p-2" dangerouslySetInnerHTML={{ __html: state.qr }} aria-label="Phone pairing code" role="img" />
+          <ol className="list-decimal space-y-2 pl-5 text-[14px]">
+            <li>
+              Point your phone’s camera at the code and open the link it shows. Or open <b className="select-all">{state.url}</b> in the phone’s browser and type
+              the code <b className="select-all font-mono text-[16px] tracking-[0.15em]">{state.pairCode}</b>.
+            </li>
+            <li>Keep it like an app: on iPhone, Share then <b>Add to Home Screen</b>; on Android, the ⋮ menu then <b>Add to Home screen</b>.</li>
+            <li>Anyone with this code can use your Jobhunt from the same Wi-Fi, so do not share it. <button className="font-semibold underline" disabled={busy} onClick={() => void call("POST", { forget: "all" })}>Make a new code</button> to shut out every phone.</li>
+          </ol>
+        </div>
+      )}
+      {state.enabled && state.url && <p className="mt-3 text-[12px] text-muted">A paired phone opens Jobhunt at {state.url}. The address can change when this computer joins another network; scan the code again if it does.</p>}
+      {state.enabled && state.running && (
+        <details className="mt-3 text-[13px] text-body">
+          <summary className="cursor-pointer font-semibold text-ink">The phone cannot open it?</summary>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>The phone has to be on the same Wi-Fi as this computer. Android phones can quietly use mobile data instead: turn mobile data off while you pair and try again.</li>
+            <li>On Android, open the link in Chrome. The camera or Google Lens may show the page in a preview of its own, which does not keep the pairing: choose “Open in Chrome”, or type the address and code above in Chrome.</li>
+            <li>Some workplace, school and hotel Wi-Fi networks keep devices from reaching each other. A phone’s hotspot, with this computer joined to it, always works.</li>
+          </ul>
+        </details>
+      )}
+      {state.phones.length > 0 && (
+        <ul className="mt-4 divide-y divide-hairline rounded-lg border border-hairline">
+          {state.phones.map((p) => (
+            <li key={p.id} className="flex items-center gap-3 px-4 py-3 text-[14px]">
+              <span className="font-semibold text-ink">{p.name}</span>
+              <span className="text-muted">paired {new Date(p.pairedAt).toLocaleDateString()} · last used {new Date(p.lastSeenAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+              <button className="btn btn-quiet btn-sm ml-auto" disabled={busy} onClick={() => void call("POST", { forget: p.id })}>Forget</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Reed's API key: Reed is used only to find UK employers' own job boards. */
+function ReedKey() {
+  const os = useOs();
+  const [saved, setSaved] = useState<boolean | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    const t = setTimeout(() => void api<{ key: boolean }>("/api/reed").then((r) => setSaved(r.key)).catch(() => setSaved(false)), 0);
+    return () => clearTimeout(t);
+  }, []);
+  async function put(value: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const r = await api<{ key: boolean }>("/api/reed", { method: "PUT", body: JSON.stringify({ key: value }) });
+      setSaved(r.key);
+      setKey("");
+      setMessage(r.key ? "Saved. Jobhunt is looking for UK employers' boards on Reed now; Sources shows the progress." : "Removed.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="mt-12 max-w-3xl">
+      <h2 className="display text-[28px]">Reed (UK)</h2>
+      <p className="mt-2 text-[14px] text-body">
+        Optional. With a free key from <a className="underline" href="https://www.reed.co.uk/developers/jobseeker" target="_blank" rel="noreferrer">reed.co.uk/developers</a>,
+        Jobhunt searches Reed once a week for UK employers, opens one job from each to see where applications go, and follows the employer’s own board when it is on a provider Jobhunt reads.
+        Reed’s own listings and agency jobs are never added.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <input type="password" autoComplete="off" className="field max-w-md" aria-label="Reed API key" value={key} onChange={(e) => setKey(e.target.value)}
+          placeholder={saved ? "A key is saved. Paste a new one to replace it." : "Reed API key"} />
+        <button className="btn btn-primary btn-sm" disabled={busy || !key.trim()} onClick={() => void put(key)}>{busy ? "Checking…" : "Save key"}</button>
+        {saved && <button className="btn btn-quiet btn-sm" disabled={busy} onClick={() => void put("")}>Remove key</button>}
+      </div>
+      <p className="mt-2 text-[12px] text-muted">{KEY_STORE[os]}, never in the database, and sent only to Reed.</p>
+      {message && <p className="mt-2 text-[13px] text-ink" role="status">{message}</p>}
+    </section>
   );
 }
 
