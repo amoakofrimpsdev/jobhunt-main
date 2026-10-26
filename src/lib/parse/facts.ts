@@ -67,7 +67,10 @@ const money = (s: string) => (/k$/i.test(s) ? Number(s.slice(0, -1).replace(/,/g
 const SALARY = /\$\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?k)(?:\.\d{2})?\s*(?:USD\s*)?(?:-|–|—|to|and)\s*\$?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?k)/i;
 const HOURLY = /\$\s?(\d{2,3}(?:\.\d{2})?)\s*(?:-|–|—|to)\s*\$?\s?(\d{2,3}(?:\.\d{2})?)\s*(?:\/|per\s+|an\s+)h(?:ou)?r/i;
 
-/** A pay range the posting text states in dollars, with its own unit. */
+const GBP_SALARY = /£\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?k|\d{5,6})(?:\.\d{2})?\s*(?:-|–|—|to|and)\s*£?\s?(\d{2,3}(?:,\d{3})+|\d{2,3}(?:\.\d)?k|\d{5,6})/i;
+const GBP_HOURLY = /£\s?(\d{1,3}(?:\.\d{2})?)\s*(?:-|–|—|to)\s*£?\s?(\d{1,3}(?:\.\d{2})?)\s*(?:\/|per\s+|an\s+)h(?:ou)?r/i;
+
+/** A pay range the posting text states in dollars or pounds, with its own unit. */
 export function payFromText(text: string): { min: number; max: number; currency: string; period: PayPeriod } | null {
   const h = HOURLY.exec(text);
   if (h) {
@@ -79,6 +82,16 @@ export function payFromText(text: string): { min: number; max: number; currency:
     const min = money(s[1]), max = money(s[2]);
     if (min >= 20000 && max >= min && max <= 2_000_000) return { min, max, currency: "USD", period: "year" };
   }
+  const gh = GBP_HOURLY.exec(text);
+  if (gh) {
+    const min = Number(gh[1]), max = Number(gh[2]);
+    if (min >= 5 && max >= min && max <= 500) return { min, max, currency: "GBP", period: "hour" };
+  }
+  const g = GBP_SALARY.exec(text);
+  if (g) {
+    const min = money(g[1]), max = money(g[2]);
+    if (min >= 12000 && max >= min && max <= 2_000_000) return { min, max, currency: "GBP", period: "year" };
+  }
   return null;
 }
 
@@ -87,15 +100,35 @@ const US_MARK = new RegExp(String.raw`\b(?:united\s+states|usa|u\.s\.a?\.?|us|ny
 const NON_US_MARK = /\b(?:canada|toronto|vancouver|montreal|ottawa|calgary|united\s+kingdom|uk|u\.k\.|england|london|manchester|edinburgh|scotland|ireland|dublin|germany|berlin|munich|hamburg|france|paris|netherlands|amsterdam|spain|madrid|barcelona|portugal|lisbon|italy|milan|rome|poland|warsaw|krakow|romania|bucharest|sweden|stockholm|denmark|copenhagen|norway|oslo|finland|helsinki|switzerland|zurich|geneva|austria|vienna|belgium|brussels|czech|prague|hungary|budapest|greece|athens|turkey|istanbul|ukraine|kyiv|serbia|belgrade|bulgaria|sofia|estonia|tallinn|lithuania|latvia|india|bangalore|bengaluru|hyderabad|pune|mumbai|delhi|gurgaon|gurugram|chennai|noida|singapore|australia|sydney|melbourne|brisbane|new\s+zealand|auckland|japan|tokyo|korea|seoul|china|shanghai|beijing|shenzhen|hong\s+kong|taiwan|taipei|philippines|manila|vietnam|thailand|bangkok|indonesia|jakarta|malaysia|kuala\s+lumpur|israel|tel\s+aviv|uae|dubai|abu\s+dhabi|saudi|riyadh|qatar|egypt|cairo|nigeria|lagos|kenya|nairobi|south\s+africa|cape\s+town|johannesburg|ghana|accra|brazil|s[aã]o\s+paulo|mexico|mexico\s+city|guadalajara|argentina|buenos\s+aires|colombia|bogot[aá]|chile|santiago|peru|lima|costa\s+rica|emea|apac|latam|europe|asia|africa|latin\s+america|luxembourg|cyprus|malta|pakistan|bangladesh|sri\s+lanka)\b/i;
 
 /** Whether any of a posting's places is in the United States. A bare "Remote" is unknown. */
+// UK places, as postings write them: the country and its nations, cities and larger towns, and postcodes ("LS13 2BL").
+const UK_MARK = /\b(?:united\s+kingdom|uk|u\.k\.|gb|great\s+britain|britain|england|scotland|wales|northern\s+ireland|london|greater\s+london|manchester|birmingham|leeds|glasgow|edinburgh|bristol|liverpool|sheffield|newcastle(?:\s+upon\s+tyne)?|nottingham|leicester|cardiff|belfast|southampton|brighton|oxford|cambridge|reading|milton\s+keynes|coventry|york|bath|exeter|plymouth|norwich|aberdeen|dundee|swansea|derby|sunderland|portsmouth|bournemouth|middlesbrough|hull|preston|wolverhampton|guildford|cheltenham|warrington|slough|ipswich|peterborough|luton|chelmsford|basingstoke|swindon|northampton|gloucester|lincoln|canterbury|maidstone|crawley|stevenage|watford|croydon|stockport|bolton|wigan|huddersfield|bradford|wakefield|doncaster|rotherham|blackpool|blackburn|chester|stoke(?:-on-trent)?|telford|worcester|hereford|shrewsbury|carlisle|lancaster|harrogate|durham|inverness|stirling|perth,\s*(?:uk|scotland)|newport|wrexham|derry|london(?:derry)?)\b|\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/;
+const UK_WORDS = new RegExp(UK_MARK.source.split("|\\b[A-Z]")[0], "i");
+const NOT_UK = /\blondon,\s*(?:on|ontario|canada|ky|kentucky)\b|\bnew\s+england\b|\bnew\s+york\b|\bnewport\s+(?:beach|news)\b|\bcambridge,\s*(?:ma|massachusetts)\b|\bbirmingham,\s*(?:al|alabama)\b|\bdurham,\s*(?:nc|north\s+carolina)\b|\bmanchester,\s*(?:nh|new\s+hampshire|ct)\b|\bperth,\s*(?:wa|australia)\b/i;
+
+function isUk(part: string): boolean {
+  if (NOT_UK.test(part)) return false;
+  // Postcodes are matched as written (capitals), the words in any case.
+  return UK_WORDS.test(part) || /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/.test(part);
+}
+
 export function countryOf(location: string, countryCode: string | null): Country {
   const code = (countryCode ?? "").trim().toUpperCase();
-  if (code === "US" || code === "USA" || code === "UNITED STATES") return "US";
-  let sawOther = code.length > 0;
+  let us = code === "US" || code === "USA" || code === "UNITED STATES";
+  let uk = code === "GB" || code === "UK" || code === "GBR" || code === "UNITED KINGDOM";
+  let sawOther = code.length > 0 && !us && !uk;
+  // A board that says the job is in Britain is believed over place names shared with US states ("Washington, Tyne
+  // and Wear", "Durham") unless the location names the United States outright.
+  if (uk && !/\b(?:united\s+states|usa|u\.s\.a?\.?)\b/i.test(location)) return "UK";
   for (const part of location.split(/;|\||\bor\b|\//)) {
     if (!part.trim()) continue;
-    if (NON_US_MARK.test(part)) { sawOther = true; continue; }
-    if (US_MARK.test(part)) return "US";
+    // A US place is checked first: "Cambridge, MA" and "Birmingham, AL" are in the United States.
+    if (US_MARK.test(part) && !/\b(?:uk|united\s+kingdom|england|scotland|wales)\b/i.test(part)) us = true;
+    else if (isUk(part)) uk = true;
+    else if (NON_US_MARK.test(part)) sawOther = true;
   }
+  if (us && uk) return "US_UK";
+  if (us) return "US";
+  if (uk) return "UK";
   return sawOther ? "other" : "unknown";
 }
 

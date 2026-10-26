@@ -10,7 +10,9 @@ const readline = require("node:readline");
 
 const PROTOCOL = "2025-06-18";
 // argv[2] is the data folder: the app writes it into Claude Desktop's config when the connector is added.
-const dataDir = process.argv[2] || process.env.JOBHUNT_DATA_DIR || path.join(os.homedir(), "Library", "Application Support", "com.danielfrimpong.jobhunt");
+const dataDir = process.argv[2] || process.env.JOBHUNT_DATA_DIR || (process.platform === "win32"
+  ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "Jobhunt")
+  : path.join(os.homedir(), "Library", "Application Support", "com.danielfrimpong.jobhunt"));
 const tools = JSON.parse(fs.readFileSync(path.join(__dirname, "tools.json"), "utf8"));
 
 async function call(tool, args) {
@@ -18,7 +20,7 @@ async function call(tool, args) {
   try {
     run = JSON.parse(fs.readFileSync(path.join(dataDir, "run.json"), "utf8"));
   } catch {
-    throw new Error("Jobhunt is not running. Open Jobhunt on this Mac, then ask again.");
+    throw new Error("Jobhunt is not running. Open Jobhunt on this computer, then ask again.");
   }
   let res;
   try {
@@ -29,7 +31,7 @@ async function call(tool, args) {
       signal: AbortSignal.timeout(60_000),
     });
   } catch {
-    throw new Error("Jobhunt is not answering. Open Jobhunt on this Mac, then ask again.");
+    throw new Error("Jobhunt is not answering. Open Jobhunt on this computer, then ask again.");
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `Jobhunt answered ${res.status}.`);
@@ -46,7 +48,7 @@ async function handle(msg) {
         protocolVersion: typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : PROTOCOL,
         capabilities: { tools: {} },
         serverInfo: { name: "jobhunt", version: "0.3.0" },
-        instructions: "Jobhunt is the person's local job-search app. Search their jobs, read postings, their profile and resumes, and save what you write for a job back with save_document. Use only facts from their resume. Jobhunt must be open on the Mac.",
+        instructions: "Jobhunt is the person's local job-search app. Search their jobs, read postings, their profile and resumes, and save what you write for a job back with save_document. Use only facts from their resume. Jobhunt must be open on this computer.",
       });
     case "ping":
       return reply({});

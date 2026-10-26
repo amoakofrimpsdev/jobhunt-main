@@ -56,7 +56,10 @@ test("reading a board saves its jobs with their facts", () => {
 });
 
 test("filters: country, visa blockers, search, job board", () => {
-  assert.deepEqual(ids({ usOnly: true }), ["greenhouse:testco:1", "greenhouse:testco:3"]);
+  assert.deepEqual(ids({ region: "us" }), ["greenhouse:testco:1", "greenhouse:testco:3"]);
+  assert.deepEqual(ids({ region: "uk" }), ["greenhouse:testco:2"]);
+  assert.equal(ids({ region: "us_uk" }).length, 3);
+  assert.equal(ids({ region: "any" }).length, 3);
   assert.deepEqual(ids({ hideBlocked: true }), ["greenhouse:testco:1", "greenhouse:testco:2"]);
   assert.deepEqual(ids({ q: "software" }), ["greenhouse:testco:2"]);
   assert.equal(ids({ boards: ["greenhouse"] }).length, 3);
@@ -154,4 +157,18 @@ test("recorded answers are kept, replaced and forgotten", () => {
   assert.deepEqual(answers.listAnswers().filter((a) => a.key === "phone").map((a) => a.value), ["(206) 555-0134"]);
   answers.saveAnswer({ key: "phone", label: "Phone", value: "" });
   assert.equal(answers.listAnswers().some((a) => a.key === "phone"), false);
+});
+
+test("recommended order lifts new postings and lowers ones that have been up for weeks", () => {
+  const day = 86_400_000;
+  assert.equal(store.freshness(0), 8);
+  assert.equal(store.freshness(5 * day), 4);
+  assert.equal(store.freshness(20 * day), 0);
+  assert.equal(store.freshness(45 * day), -6);
+  assert.equal(store.freshness(90 * day), -12);
+  assert.equal(store.freshness(null), -5);
+  // A perfect match from two months ago falls below a near-perfect one from today.
+  assert.ok(95 + store.freshness(0) > 100 + store.freshness(54 * day));
+  // A much weaker match from today does not jump a perfect one from last week.
+  assert.ok(80 + store.freshness(0) < 100 + store.freshness(10 * day));
 });

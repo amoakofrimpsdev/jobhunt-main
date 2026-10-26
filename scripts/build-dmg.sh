@@ -63,6 +63,7 @@ cp -R "$ROOT/.next/static" "$APP_TREE/.next/static"
 rm -rf "$APP_TREE/data"
 cp -R "$ROOT/data" "$APP_TREE/data"
 cp "$ROOT/desktop/launch.cjs" "$APP_TREE/launch.cjs"
+cp "$ROOT/desktop/upgrade.cjs" "$APP_TREE/upgrade.cjs"
 # The Claude Desktop connector, run by the app's own Node.
 cp -R "$ROOT/mcp" "$APP_TREE/mcp"
 

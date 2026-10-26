@@ -1,22 +1,30 @@
 /** The last four are single employers that run a careers site of their own. "manual" is not a provider: it marks
  *  jobs the person saved from a page in their browser. */
-export type Ats = "greenhouse" | "lever" | "ashby" | "workday" | "workable" | "icims" | "oracle" | "jazzhr" | "bamboohr" | "amazon" | "microsoft" | "apple" | "meta" | "manual";
+export type Ats = "greenhouse" | "lever" | "ashby" | "workday" | "workable" | "icims" | "oracle" | "jazzhr" | "bamboohr" | "smartrecruiters"
+  | "personio" | "teamtailor" | "amazon" | "microsoft" | "apple" | "meta" | "nhs" | "manual";
 /** Employers read from their own careers site: one board each. */
-export const COMPANY_SITES: Array<{ ats: Ats; slug: string; name: string; host: string }> = [
+export const COMPANY_SITES: Array<{ ats: Ats; slug: string; name: string; host: string; uk?: boolean }> = [
   { ats: "amazon", slug: "us", name: "Amazon", host: "amazon.jobs" },
   { ats: "microsoft", slug: "us", name: "Microsoft", host: "careers.microsoft.com" },
   { ats: "apple", slug: "us", name: "Apple", host: "jobs.apple.com" },
   { ats: "meta", slug: "all", name: "Meta", host: "metacareers.com" },
+  // NHS trusts and practices post their own vacancies on NHS Jobs. Read only when the feed includes the UK.
+  { ats: "nhs", slug: "all", name: "NHS Jobs", host: "jobs.nhs.uk", uk: true },
 ];
 export const ATS_LABEL: Record<Ats, string> = {
   greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workday: "Workday", workable: "Workable", icims: "iCIMS",
-  oracle: "Oracle", jazzhr: "JazzHR", bamboohr: "BambooHR", amazon: "Amazon Jobs", microsoft: "Microsoft Careers",
-  apple: "Apple Jobs", meta: "Meta Careers", manual: "Browser",
+  oracle: "Oracle", jazzhr: "JazzHR", bamboohr: "BambooHR", smartrecruiters: "SmartRecruiters", personio: "Personio",
+  teamtailor: "Teamtailor", amazon: "Amazon Jobs", microsoft: "Microsoft Careers", apple: "Apple Jobs", meta: "Meta Careers",
+  nhs: "NHS Jobs", manual: "Browser",
 };
 export type WorkModel = "remote" | "hybrid" | "onsite";
 export type Level = "intern" | "entry" | "mid" | "senior" | "staff" | "manager" | "director" | "exec";
 export type PayPeriod = "year" | "month" | "hour";
-export type Country = "US" | "other" | "unknown";
+/** Where a job is. "US_UK": it lists places in both. "unknown": it names no country (a bare "Remote"). */
+export type Country = "US" | "UK" | "US_UK" | "other" | "unknown";
+/** The countries the feed shows. */
+export type Region = "us" | "uk" | "us_uk" | "any";
+export const REGION_LABEL: Record<Region, string> = { us: "United States", uk: "United Kingdom", us_uk: "US and UK", any: "Anywhere" };
 export type Band = "strong" | "good" | "fair" | "low";
 export type TrackStatus = "saved" | "applied" | "interviewing" | "offer" | "rejected" | "archived";
 
@@ -86,14 +94,15 @@ export type Profile = {
   locations: string[];
   remoteOk: boolean;
   needsSponsorship: boolean;
-  usOnly: boolean;
+  /** The countries the feed shows. */
+  region: Region;
   resumeName: string | null;
   updatedAt: string | null;
 };
 
 export const EMPTY_PROFILE: Profile = {
   name: "", targetTitles: [], skills: [], years: null, level: null, locations: [], remoteOk: true,
-  needsSponsorship: false, usOnly: true, resumeName: null, updatedAt: null,
+  needsSponsorship: false, region: "us", resumeName: null, updatedAt: null,
 };
 
 export type MatchPart = { key: "role" | "skills" | "level"; label: string; score: number | null; reasons: string[] };
@@ -135,6 +144,8 @@ export type JobCard = {
   blocker: "clearance" | "citizenship" | "no_sponsorship" | null;
   h1bFilings: number;
   capExempt: boolean;
+  /** The employer is on the UK Home Office register of licensed sponsors (by name). */
+  ukSponsor: boolean;
   closedAt: string | null;
   match: Match | null;
   status: TrackStatus | null;

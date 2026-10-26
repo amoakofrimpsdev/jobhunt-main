@@ -15,7 +15,7 @@
   });
   const api = (path, method, body) => send({ type: "api", path, method, body });
 
-  const KNOWN = /greenhouse\.io|lever\.co|ashbyhq\.com|myworkday|icims\.com|smartrecruiters\.com|workable\.com|bamboohr\.com|jobvite\.com|oraclecloud\.com|taleo\.net|recruitee\.com|applytojob\.com|breezy\.hr|rippling\.com/;
+  const KNOWN = /greenhouse\.io|lever\.co|ashbyhq\.com|myworkday|icims\.com|smartrecruiters\.com|workable\.com|bamboohr\.com|jobvite\.com|oraclecloud\.com|taleo\.net|recruitee\.com|applytojob\.com|breezy\.hr|rippling\.com|jobs\.personio\.(?:de|com)|teamtailor\.com|jobs\.nhs\.uk/;
   const inFrame = window.top !== window;
   let fields = E.scan();
   if (inFrame) {

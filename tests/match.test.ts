@@ -56,6 +56,14 @@ test("bands", () => {
   assert.deepEqual([85, 70, 55, 30].map(bandFor), ["strong", "good", "fair", "low"]);
 });
 
+test("companies named like built-in words get no made-up filings", async () => {
+  const { h1bFilings, ukSponsorLikely } = await import("../src/lib/company");
+  for (const name of ["Constructor", "toString", "hasOwnProperty", "valueOf", "isPrototypeOf"]) {
+    assert.equal(h1bFilings(name), 0, name);
+    assert.equal(typeof ukSponsorLikely(name), "boolean", name);
+  }
+});
+
 test("company names are matched whatever their legal form", () => {
   assert.equal(companyKey("Stripe, Inc."), "stripe");
   assert.equal(companyKey("STRIPE INC"), "stripe");

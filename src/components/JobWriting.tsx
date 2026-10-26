@@ -5,12 +5,14 @@ import { Copy, Download, Sparkles, Trash2, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ago, api } from "@/lib/client";
 import { DOCUMENT_KINDS, DOCUMENT_LABEL, type AiProvider, type DocumentKind, type JobDocument } from "@/lib/types";
+import { FILE_MANAGER, useOs } from "@/lib/os";
 
 const SOURCE_LABEL: Record<string, string> = { local: "local model", anthropic: "Claude API", openai: "OpenAI", "claude-desktop": "Claude Desktop" };
 const BUTTON: Record<DocumentKind, string> = { fit: "Explain my fit", resume: "Tailor resume", cover: "Cover letter", message: "Outreach message" };
 
 /** The AI writing for one job: the four actions, and everything written so far, editable. */
 export function JobWriting({ jobId }: { jobId: string }) {
+  const os = useOs();
   const [provider, setProvider] = useState<AiProvider | null>(null);
   const [docs, setDocs] = useState<JobDocument[]>([]);
   const [busy, setBusy] = useState<DocumentKind | null>(null);
@@ -144,7 +146,7 @@ export function JobWriting({ jobId }: { jobId: string }) {
           {savedFile?.id === d.id && (
             <p className="mt-2 rounded-md bg-[#d3ece4] px-3 py-2 text-[13px] text-[#123b33]" role="status">
               Saved to Downloads as <span className="font-semibold">{savedFile.name}</span>.{" "}
-              <button className="font-semibold underline" onClick={() => api("/api/documents/export", { method: "POST", body: JSON.stringify({ reveal: savedFile.path }) }).catch(() => undefined)}>Show in Finder</button>
+              <button className="font-semibold underline" onClick={() => api("/api/documents/export", { method: "POST", body: JSON.stringify({ reveal: savedFile.path }) }).catch(() => undefined)}>Show in {FILE_MANAGER[os]}</button>
             </p>
           )}
           {d.warnings.length > 0 && (

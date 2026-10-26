@@ -44,7 +44,7 @@ export default function AlertsPage() {
       <section className="pt-12">
         <p className="eyebrow text-muted">Alerts</p>
         <h1 className="display mt-3 text-[38px] sm:text-[56px]">New jobs, as they land.</h1>
-        <p className="mt-3 max-w-2xl text-[16px]">An alert is a search Jobhunt runs again after every refresh. Jobs that are new since the last one show up here, and on this Mac as a notification while Jobhunt is open.</p>
+        <p className="mt-3 max-w-2xl text-[16px]">An alert is a search Jobhunt runs again after every refresh. Jobs that are new since the last one show up here, and on this computer as a notification while Jobhunt is open.</p>
       </section>
 
       {state && state.alerts.length === 0 && (
@@ -84,13 +84,13 @@ export default function AlertsPage() {
           </div>
           {state.hits.length === 0 && <p className="mt-4 rounded-xl bg-surface-card px-6 py-8 text-[14px] text-muted">Nothing new yet. Matches appear after the next refresh that brings in a job fitting one of your alerts.</p>}
           <div className="mt-4 space-y-3">
-            {state.hits.map((j, i) => (
+            {state.hits.map((j) => (
               <div key={j.id}>
                 <p className="mb-1 flex items-center gap-2 text-[12px] text-muted">
                   {!j.seen && <span className="h-2 w-2 rounded-full bg-pink" aria-label="Unread" />}
                   {j.alertName} · found {ago(j.foundAt)}
                 </p>
-                <JobCard job={j} index={i} onOpen={setOpen} onTrack={onTrack} />
+                <JobCard job={j} onOpen={setOpen} onTrack={onTrack} />
               </div>
             ))}
           </div>

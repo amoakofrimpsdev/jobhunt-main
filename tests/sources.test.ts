@@ -6,6 +6,9 @@ import { summarize } from "../src/lib/alerts";
 import { toDocx, toPdf } from "../src/lib/export";
 import { companyTerm, likelyManager, peopleSearches } from "../src/lib/people";
 import { detectBoard } from "../src/lib/sources";
+import { campusmeshFits, studentFriendly } from "../src/lib/collections";
+import { forTests as uk } from "../src/lib/sources-uk";
+import { forTests as phone } from "../src/lib/phone";
 
 test("careers links are recognised on every provider", () => {
   const cases: Array<[string, string, string]> = [
@@ -16,11 +19,20 @@ test("careers links are recognised on every provider", () => {
     ["https://jobs.ashbyhq.com/linear/d3bc1ced/application", "ashby", "linear"],
     ["https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/US-CA/Engineer_JR1", "workday", "nvidia.wd5.nvidiaexternalcareersite"],
     ["https://nasdaq.wd1.myworkdayjobs.com/Global_External_Site", "workday", "nasdaq.wd1.global_external_site"],
+    ["https://westgold.wd103.myworkdayjobs.com/westgold/job/Perth-WA/Trainee_JR103451", "workday", "westgold.wd103.westgold"],
+    ["https://wd5.myworkdaysite.com/recruiting/uw/UWHires/job/Seattle-WA/Scientist_REQ-1", "workday", "uw.wd5.uwhires"],
+    ["https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/Careers/jobs", "workday", "acme.wd1.careers"],
     ["https://apply.workable.com/saalex/j/ABC123/", "workable", "saalex"],
     ["https://careers-nasco.icims.com/jobs/1234/analyst/job", "icims", "careers-nasco"],
     ["https://mujin.bamboohr.com/careers/55", "bamboohr", "mujin"],
     ["https://sigmadesign.applytojob.com/apply/AbCdEf12/Engineer", "jazzhr", "sigmadesign"],
     ["https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210", "oracle", "jpmc.fa.cx_1001"],
+    ["https://jobs.smartrecruiters.com/Wise/744000155915039-assistant-company-secretary", "smartrecruiters", "Wise"],
+    ["https://careers.smartrecruiters.com/Wise", "smartrecruiters", "Wise"],
+    ["https://acme.jobs.personio.de/job/1834171?language=en", "personio", "acme"],
+    ["https://acme.jobs.personio.com/", "personio", "acme"],
+    ["https://acme.teamtailor.com/jobs/8118064-account-executive", "teamtailor", "acme"],
+    ["https://www.jobs.nhs.uk/candidate/jobadvert/A2381-26-0018-SGP", "nhs", "all"],
     ["https://www.amazon.jobs/en/jobs/10574286/sr-embedded-sde", "amazon", "us"],
     ["https://apply.careers.microsoft.com/careers?domain=microsoft.com", "microsoft", "us"],
     ["https://jobs.apple.com/en-us/search?location=united-states-USA", "apple", "us"],
@@ -29,9 +41,44 @@ test("careers links are recognised on every provider", () => {
   for (const [url, ats, slug] of cases) assert.deepEqual(detectBoard(url), { ats, slug }, url);
 });
 
+test("CampusMesh jobs for students and new graduates are told apart", () => {
+  for (const title of ["Software Engineering Intern", "Summer Internship 2027", "New Grad Data Analyst", "Graduate Trainee", "Entry-Level Accountant", "Junior Developer", "Engineer I", "Analyst 1, Risk", "Co-op Student", "Early Career Program", "Campus Hire - SWE"]) {
+    assert.equal(studentFriendly({ title }), true, title);
+  }
+  for (const title of ["Senior Software Engineer", "Director of Finance", "Staff Engineer II", "Registered Nurse", "Associate Director"]) {
+    assert.equal(studentFriendly({ title }), false, title);
+  }
+  assert.equal(studentFriendly({ title: "Data Analyst", experienceYearsMin: 0 }), true);
+  assert.equal(studentFriendly({ title: "Data Analyst", experienceYearsMin: 5 }), false);
+  // Followed: a student job in the US in a professional field.
+  assert.equal(campusmeshFits({ title: "Software Engineering Intern", country: "US" }), true);
+  assert.equal(campusmeshFits({ title: "Software Engineering Intern", country: "IN" }), false);
+  assert.equal(campusmeshFits({ title: "Patient Care Trainee", country: "US" }), false);
+});
+
 test("other links are not boards", () => {
   for (const url of ["https://www.linkedin.com/jobs/view/1", "https://example.com/careers", "not a url at all", "https://www.bamboohr.com/pricing", "https://www.google.com/about/careers/applications/jobs/results/", "https://www.apple.com/careers/us/"]) {
     assert.equal(detectBoard(url), null, url);
+  }
+});
+
+test("NHS pay and the XML pieces the UK readers use", () => {
+  assert.deepEqual(uk.nhsPay("£32073.00 to £39043.00"), { min: 32073, max: 39043, currency: "GBP", period: "year" });
+  assert.deepEqual(uk.nhsPay("£12.60 an hour"), { min: 12.6, max: 12.6, currency: "GBP", period: "hour" });
+  assert.equal(uk.nhsPay("Negotiable"), null);
+  assert.equal(uk.nhsPay("£350.00"), null);
+  assert.equal(uk.tag("<a><b><![CDATA[<p>x</p>]]></b></a>", "b"), "<p>x</p>");
+  assert.deepEqual(uk.tags("<l><o>A</o><o>B</o></l>", "o"), ["A", "B"]);
+});
+
+test("phone access lets in only private networks and keeps the computer's settings on the computer", () => {
+  for (const ip of ["192.168.1.20", "10.0.0.5", "172.20.1.1", "100.64.5.91", "::ffff:192.168.0.3", "fe80::1"]) assert.equal(phone.isPrivate(ip), true, ip);
+  for (const ip of ["8.8.8.8", "100.128.0.1", "172.32.0.1", "2001:4860::8888"]) assert.equal(phone.isPrivate(ip), false, ip);
+  for (const [method, path] of [["GET", "/settings"], ["GET", "/api/answers"], ["POST", "/api/ext/save-job"], ["PUT", "/api/phone"], ["PUT", "/api/reed"], ["POST", "/api/claude"], ["PUT", "/api/ai"]]) {
+    assert.equal(phone.computerOnly(method, path), true, `${method} ${path}`);
+  }
+  for (const [method, path] of [["GET", "/"], ["GET", "/api/jobs?limit=5"], ["POST", "/api/track"], ["POST", "/api/ai"], ["GET", "/tracker"]]) {
+    assert.equal(phone.computerOnly(method, path), false, `${method} ${path}`);
   }
 });
 
@@ -56,7 +103,7 @@ test("LinkedIn people searches are plain links to LinkedIn", () => {
 
 test("an alert says what it looks for", () => {
   assert.equal(summarize(""), "Every new job");
-  assert.equal(summarize("q=analyst&work=remote&h1b=1&minScore=80&ats=greenhouse,lever"), "“analyst” · remote · match 80% or more · on Greenhouse, Lever · H-1B filers");
+  assert.equal(summarize("q=analyst&work=remote&h1b=1&minScore=80&ats=greenhouse,lever"), "“analyst” · remote · match 80% or more · on Greenhouse, Lever · visa sponsors");
 });
 
 const RESUME = `Jordan Testwell

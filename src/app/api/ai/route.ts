@@ -43,7 +43,9 @@ export async function PUT(request: Request) {
   });
   for (const name of ["anthropic", "openai"] as const) {
     const key = b[`${name}Key`];
-    if (typeof key === "string") setSecret(name, key.trim() || null);
+    if (typeof key === "string") {
+      try { setSecret(name, key.trim() || null); } catch (e) { return Response.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 }); }
+    }
   }
   return Response.json(await state());
 }

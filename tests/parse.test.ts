@@ -66,10 +66,42 @@ test("work model and country", () => {
   assert.equal(workModelOf("Remote", "", ""), "remote");
   assert.equal(workModelOf(null, "New York (Hybrid)", ""), "hybrid");
   assert.equal(countryOf("San Francisco, CA", null), "US");
-  assert.equal(countryOf("London, UK", null), "other");
+  assert.equal(countryOf("London, UK", null), "UK");
+  assert.equal(countryOf("Berlin, Germany", null), "other");
   assert.equal(countryOf("Remote", null), "unknown");
   assert.equal(countryOf("Toronto, Canada; Austin, TX", null), "US");
   assert.equal(countryOf("", "US"), "US");
+});
+
+test("UK places, postcodes and jobs in both countries", () => {
+  assert.equal(countryOf("London", null), "UK");
+  assert.equal(countryOf("Leeds, LS13 2BL", null), "UK");
+  assert.equal(countryOf("Cambridge, England", null), "UK");
+  assert.equal(countryOf("Cambridge, MA", null), "US");
+  assert.equal(countryOf("Birmingham, AL", null), "US");
+  assert.equal(countryOf("London, ON", null), "other");
+  assert.equal(countryOf("New York, NY; London", null), "US_UK");
+  assert.equal(countryOf("", "GB"), "UK");
+  assert.equal(countryOf("Washington, NE38 7LZ", "GB"), "UK");
+  assert.equal(countryOf("Berlin", null), "other");
+});
+
+test("UK visa wording", () => {
+  const blocker = (text: string) => visaBlocker("Software Engineer", text, parseStatements(text))?.reason ?? null;
+  assert.equal(blocker("Unfortunately this role is not eligible for sponsorship. You must already have the full right to work in the UK."), "no_sponsorship");
+  assert.equal(blocker("We are unable to offer Skilled Worker visa sponsorship for this role."), "no_sponsorship");
+  assert.equal(blocker("Candidates must be eligible for SC clearance."), "clearance");
+  assert.equal(blocker("Must be a British citizen."), "citizenship");
+  // Saying the job is in the UK and asking for the right to work there is not a refusal to sponsor.
+  assert.equal(blocker("You must have the right to work in the UK."), null);
+  assert.equal(parseStatements("Applications from job seekers who require current Skilled worker sponsorship to work in the UK are welcome.").sponsorship, "yes");
+  assert.equal(parseStatements("Skilled Worker visa sponsorship is available for this role.").sponsorship, "yes");
+});
+
+test("pay in pounds", () => {
+  assert.deepEqual(payFromText("£45,000 - £55,000 per annum"), { min: 45000, max: 55000, currency: "GBP", period: "year" });
+  assert.deepEqual(payFromText("£60k–£80k"), { min: 60000, max: 80000, currency: "GBP", period: "year" });
+  assert.deepEqual(payFromText("£12.60 - £14.20 per hour"), { min: 12.6, max: 14.2, currency: "GBP", period: "hour" });
 });
 
 test("posting HTML is reduced to plain structure", () => {

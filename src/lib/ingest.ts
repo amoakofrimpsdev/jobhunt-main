@@ -1,11 +1,12 @@
 // Reading boards into the store: fetch, parse each posting's facts once, save, then score everything.
-import { capExemptLikely, h1bFilings } from "./company";
+import { capExemptLikely, h1bFilings, ukSponsorLikely } from "./company";
 import { scoreJob, scorerFor } from "./match";
 import { countryOf, employmentTypeOf, levelOfTitle, levelOfYears, payFromText, workModelOf, yearsRequired } from "./parse/facts";
 import { parseStatements, visaBlocker } from "./parse/statements";
+import { Maintenance } from "./http";
 import { fetchBoard, isSlowAts } from "./sources";
-import { fetchPosting } from "./sources-more";
-import { getMeta, getProfile, jobsForScoring, listBoards, profileReady, recordBoardRun, saveBoardListing, saveMatches, setMeta, type JobRow, heldPostingIds, unreadPosting } from "./store";
+import { fetchPosting, SHARED_HOST } from "./sources-more";
+import { getMeta, getProfile, jobsForScoring, listBoards, profileReady, recordBoardRun, saveBoardListing, saveMatches, setMeta, type JobRow, heldPostingIds, unreadPosting, activeBoardIds } from "./store";
 import { familyOfTitle, scanSkills } from "./taxonomy";
 import { htmlToText, sanitizeHtml } from "./text";
 import type { Board, Match, RawJob } from "./types";
@@ -49,6 +50,7 @@ export function toJobRow(board: Pick<Board, "id" | "ats" | "slug">, raw: RawJob)
     evidence,
     h1bFilings: h1bFilings(raw.company),
     capExempt: capExemptLikely(raw.company),
+    ukSponsor: ukSponsorLikely(raw.company),
   };
 }
 
@@ -86,21 +88,24 @@ export function rescore(everything = false): Promise<number> {
     const profile = getProfile();
     if (!profileReady(profile)) { saveMatches([], true); return 0; }
     const scorer = scorerFor(profile);
+    const boards = activeBoardIds();
     let scored = 0;
-    let after: { boardId: number; id: string } | null = null;
-    for (;;) {
-      const page = jobsForScoring(!all, after, SCORE_PAGE);
-      if (!page.length) break;
+    // A few boards at a time, about SCORE_PAGE jobs, then a pause: the screens are answered in between.
+    for (let i = 0; i < boards.length;) {
+      let rows: ReturnType<typeof jobsForScoring> = [];
+      while (i < boards.length && rows.length < SCORE_PAGE) {
+        const more = jobsForScoring(!all, [boards[i++]]);
+        rows = rows.length ? rows.concat(more) : more;
+      }
       const out: Array<{ jobId: string; match: Match }> = [];
       const none: string[] = [];
-      for (const j of page) {
+      for (const j of rows) {
         const match = scoreJob(scorer, j);
         if (match) out.push({ jobId: j.id, match });
         else none.push(j.id);
       }
       saveMatches(out, false, all ? none : []);
       scored += out.length;
-      after = { boardId: page[page.length - 1].boardId, id: page[page.length - 1].id };
       await pause();
     }
     return scored;
@@ -179,8 +184,12 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
   g.__jobhuntRefresh = status;
 
   let lastScored = Date.now();
+  // Providers found down for maintenance in this run: their other boards are not asked.
+  const down = new Map<string, string>();
   const readBoard = async (b: Board) => {
     status.current = b.name;
+    const skip = down.get(b.ats);
+    if (skip) { status.failed++; status.done++; recordBoardRun(b.id, false, skip); return; }
     try {
       const listing = await fetchBoard(b.ats, b.slug, b.name, isSlowAts(b.ats) ? heldPostingIds(b) : undefined);
       const raw = listing.jobs;
@@ -201,6 +210,7 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
     } catch (e) {
       // A board that fails closes nothing: its postings stay as they were.
       status.failed++;
+      if (e instanceof Maintenance) down.set(b.ats, e.message);
       recordBoardRun(b.id, false, e instanceof Error ? e.message : String(e));
     }
     status.done++;
@@ -217,7 +227,7 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
   const queues = new Map<string, Board[]>();
   const perEmployer: Board[] = [];
   for (const b of boards) {
-    if (isSlowAts(b.ats)) perEmployer.push(b);
+    if (isSlowAts(b.ats) && !SHARED_HOST.has(b.ats)) perEmployer.push(b);
     else queues.set(b.ats, [...(queues.get(b.ats) ?? []), b]);
   }
   const workers = [...queues.values()].map(async (queue) => { for (const b of queue) await readBoard(b); });

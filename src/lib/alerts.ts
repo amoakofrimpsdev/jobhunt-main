@@ -2,8 +2,8 @@
 // are kept as hits, shown on the Alerts page, and announced with a notification on this computer. Nothing is sent
 // anywhere: an alert is a row in the local database.
 import { execFile } from "node:child_process";
-import { cardsById, db, feed, filterFromParams, getProfile } from "./store";
-import { ATS_LABEL, LEVEL_LABEL, type Ats, type JobCard, type Level } from "./types";
+import { cardsById, db, feed, filterFromParams, getProfile, regionFromParams } from "./store";
+import { ATS_LABEL, LEVEL_LABEL, REGION_LABEL, type Ats, type JobCard, type Level } from "./types";
 
 export type Alert = { id: number; name: string; params: string; summary: string; enabled: boolean; createdAt: string; lastRunAt: string; hits: number; unseen: number };
 export type AlertHit = JobCard & { alertId: number; alertName: string; foundAt: string; seen: boolean };
@@ -23,11 +23,12 @@ export function summarize(params: string): string {
   if (list("level").length) parts.push(list("level").map((l) => LEVEL_LABEL[l as Level] ?? l).join(" or "));
   if (p.get("minScore")) parts.push(`match ${p.get("minScore")}% or more`);
   if (list("ats").length) parts.push(`on ${list("ats").map((a) => ATS_LABEL[a as Ats] ?? a).join(", ")}`);
-  if (p.get("h1b") === "1") parts.push("H-1B filers");
+  if (p.get("h1b") === "1") parts.push("visa sponsors");
   if (p.get("capExempt") === "1") parts.push("cap-exempt employers");
   if (p.get("everify") === "1") parts.push("E-Verify employers");
   if (p.get("pay") === "1") parts.push("pay listed");
-  if (p.get("us") === "1") parts.push("United States");
+  const region = regionFromParams(p);
+  if (region && region !== "any") parts.push(REGION_LABEL[region]);
   if (p.get("hideBlocked") === "1") parts.push("no visa blockers");
   return parts.length ? parts.join(" · ") : "Every new job";
 }
@@ -81,11 +82,26 @@ export function listHits(limit = 120): AlertHit[] {
     .map((j) => { const r = first.get(j.id)!; return { ...j, alertId: r.alert_id as number, alertName: r.name as string, foundAt: r.found_at as string, seen: r.seen === 1 }; });
 }
 
+// A Windows notification through Windows PowerShell's own app identity. The words reach the script as environment
+// variables, never as part of the script itself.
+const WINDOWS_TOAST = `
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+$x = $t.GetElementsByTagName('text')
+$x.Item(0).AppendChild($t.CreateTextNode($env:JOBHUNT_TITLE)) > $null
+$x.Item(1).AppendChild($t.CreateTextNode($env:JOBHUNT_MESSAGE)) > $null
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe').Show([Windows.UI.Notifications.ToastNotification]::new($t))`;
+
 function notify(title: string, message: string): void {
   // JOBHUNT_QUIET keeps the tests from popping notifications on the machine that runs them.
-  if (process.platform !== "darwin" || process.env.JOBHUNT_QUIET) return;
-  const quote = (s: string) => `"${s.replace(/[\\"]/g, " ")}"`;
-  execFile("/usr/bin/osascript", ["-e", `display notification ${quote(message)} with title ${quote(title)}`], () => undefined);
+  if (process.env.JOBHUNT_QUIET) return;
+  if (process.platform === "darwin") {
+    const quote = (s: string) => `"${s.replace(/[\\"]/g, " ")}"`;
+    execFile("/usr/bin/osascript", ["-e", `display notification ${quote(message)} with title ${quote(title)}`], () => undefined);
+  } else if (process.platform === "win32") {
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_TOAST],
+      { env: { ...process.env, JOBHUNT_TITLE: title, JOBHUNT_MESSAGE: message }, windowsHide: true, timeout: 20_000 }, () => undefined);
+  }
 }
 
 /** Runs every switched-on alert over the jobs that arrived since it last ran. Returns how many new hits there are. */

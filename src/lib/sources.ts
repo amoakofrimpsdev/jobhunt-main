@@ -159,11 +159,21 @@ export function detectBoard(input: string): { ats: Exclude<Ats, "manual">; slug:
     const slug = ok(host === "api.ashbyhq.com" ? parts[2] : parts[0]);
     return slug ? { ats: "ashby", slug } : null;
   }
-  // Workday: https://<company>.wdN.myworkdayjobs.com/[en-US/]<site>/job/... reads "<company>.wdN.<site>".
+  // Workday: https://<company>.wdN.myworkdayjobs.com/[en-US/]<site>/job/... reads "<company>.wdN.<site>". The site may
+  // carry the company's own name ("westgold/westgold"). The API form is /wday/cxs/<company>/<site>/..., and the older
+  // https://wdN.myworkdaysite.com/[en-US/]recruiting/<company>/<site>/... names the company in the path.
   const wd = /^([a-z0-9][a-z0-9-]*)\.(wd\d+)\.myworkday(?:jobs|site)\.com$/.exec(host);
+  // Only the first part of the path can be a language ("en-US"); "uw" further on is a company.
+  const rest = /^[a-z]{2}(?:-[A-Za-z]{2})?$/.test(parts[0] ?? "") ? parts.slice(1) : parts;
   if (wd) {
-    const site = ok(parts.find((p) => !/^[a-z]{2}(?:-[A-Za-z]{2})?$/.test(p) && p !== "wday" && p !== "cxs" && p !== "recruiting"));
-    return site && site !== "job" && site.toLowerCase() !== wd[1] ? { ats: "workday", slug: `${wd[1]}.${wd[2]}.${site.toLowerCase()}` } : null;
+    const site = ok(rest[0] === "wday" && rest[1] === "cxs" ? rest[3] : rest[0] === "recruiting" ? rest[2] : rest[0]);
+    return site && site !== "job" && site !== "wday" ? { ats: "workday", slug: `${wd[1]}.${wd[2]}.${site.toLowerCase()}` } : null;
+  }
+  const wdSite = /^(wd\d+)\.myworkday(?:site|jobs)\.com$/.exec(host);
+  if (wdSite) {
+    const at = rest.indexOf("recruiting");
+    const tenant = ok(at >= 0 ? rest[at + 1] : undefined), site = ok(at >= 0 ? rest[at + 2] : undefined);
+    return tenant && site && site !== "job" ? { ats: "workday", slug: `${tenant.toLowerCase()}.${wdSite[1]}.${site.toLowerCase()}` } : null;
   }
   if (host === "apply.workable.com") {
     const slug = ok(parts[0] === "api" ? parts[4] : parts[0]);
@@ -171,6 +181,15 @@ export function detectBoard(input: string): { ats: Exclude<Ats, "manual">; slug:
   }
   const sub = /^([a-z0-9][a-z0-9-]*)\.(icims\.com|applytojob\.com|bamboohr\.com)$/.exec(host);
   if (sub && sub[1] !== "www" && sub[1] !== "app") return { ats: sub[2] === "icims.com" ? "icims" : sub[2] === "applytojob.com" ? "jazzhr" : "bamboohr", slug: sub[1] };
+  // SmartRecruiters: https://jobs.smartrecruiters.com/<Company>/<id>-..., https://careers.smartrecruiters.com/<Company>
+  if (host === "jobs.smartrecruiters.com" || host === "careers.smartrecruiters.com" || host === "api.smartrecruiters.com") {
+    const slug = ok(host === "api.smartrecruiters.com" ? parts[2] : parts[0]);
+    return slug && !/^(?:oneclick-ui|sr-jobs|v1)$/i.test(slug) ? { ats: "smartrecruiters", slug } : null;
+  }
+  const personio = /^([a-z0-9][a-z0-9-]*)\.jobs\.personio\.(?:de|com)$/.exec(host);
+  if (personio) return { ats: "personio", slug: personio[1] };
+  const tt = /^([a-z0-9][a-z0-9-]*)\.(?:na\.)?teamtailor\.com$/.exec(host);
+  if (tt && tt[1] !== "www" && tt[1] !== "app" && tt[1] !== "career") return { ats: "teamtailor", slug: tt[1] };
   // Oracle Recruiting: https://<host>.oraclecloud.com/hcmUI/CandidateExperience/<lang>/sites/<site>/...
   if (host.endsWith(".oraclecloud.com")) {
     const at = parts.indexOf("sites");

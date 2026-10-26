@@ -3,8 +3,9 @@
 // It reads the site's sitemap, opens one page per company it has not seen before, and finds the employer's own board
 // there, so the jobs still come from the employer. Carried over from jobleft.
 import { getJson, getText, NotFound, obj, str } from "./http";
+import { getSecret } from "./secrets";
 import { detectBoard } from "./sources";
-import { addCollection, addCollectionBoard, collectionPages, listCollections, recordCollectionCheck, saveCollectionPage } from "./store";
+import { addCollection, addCollectionBoard, collectionPages, getProfile, listCollections, recordCollectionCheck, saveCollectionPage, setCollectionNotRead } from "./store";
 import { decodeEntities } from "./text";
 import type { Ats, Collection } from "./types";
 
@@ -116,6 +117,8 @@ export async function checkCollection(c: Pick<Collection, "id" | "url" | "name">
   checking().add(c.id);
   let added = 0;
   try {
+    if (c.id === REED_COLLECTION) return (added = await reedBoards(c));
+    if (/(?:^|\.)campusmesh\.com$/i.test(new URL(c.url).host)) return (added = await campusmeshBoards(c));
     const site = new URL(c.url);
     const simplify = site.host === "github.com" ? /^\/SimplifyJobs\/([\w.-]+)/i.exec(site.pathname)?.[1] : null;
     if (simplify) {
@@ -156,6 +159,156 @@ export async function checkCollection(c: Pick<Collection, "id" | "url" | "name">
 }
 
 export const isChecking = (id: string): boolean => checking().has(id);
+
+// ---------------------------------------------------------------- CampusMesh
+
+// campusmesh.com/jobs lists jobs and internships for students, each with the employer's own posting as its link. Its
+// public list is read through the API its page uses (500 jobs a request); each link names the employer's board.
+// Where the link is a posting on the employer's own website, the provider CampusMesh names and its company name are
+// tried as the board instead, checked with one request per employer and remembered.
+const CAMPUSMESH = "https://api.campusmesh.com/jobs-service/jobs/public/list";
+// Only employers with a job for students or new graduates on CampusMesh are followed: its list runs to well over
+// a hundred thousand jobs from thousands of employers, and following every one would triple what Jobhunt reads.
+const STUDENT_TITLE = /\b(?:intern(?:ship)?s?|co-?op|new[- ]?grad(?:uate)?s?|graduates?|grad(?:uate)?\s+(?:program|scheme|trainee)|entry[- ]level|junior|jr\.?|trainees?|apprentice(?:ship)?s?|early[- ]career|campus|students?|fellow(?:ship)?s?|rotational|(?:engineer|analyst|developer|scientist|associate|specialist|technician|accountant|consultant)\s+(?:i|1)|level\s+(?:i|1))\b/i;
+
+/** A CampusMesh job meant for students or new graduates: by its title, or by asking for no experience. */
+export function studentFriendly(j: { title?: unknown; experienceYearsMin?: unknown; employmentType?: unknown }): boolean {
+  const years = typeof j.experienceYearsMin === "number" ? j.experienceYearsMin : null;
+  return STUDENT_TITLE.test(str(j.title)) || /intern/i.test(str(j.employmentType)) || (years !== null && years <= 1);
+}
+
+// About half of CampusMesh's list is for students, from some five thousand employers, many of them hospitals,
+// shops and trades. Followed are the employers with a student job in the United States in the professional fields
+// people here look for: about 2,500 boards.
+const FIELD = /\b(?:software|data|engineer(?:ing)?|developer|analyst|analytics|machine\s+learning|ml|ai|cloud|devops|security|cyber|product|it|systems|research|quantitative|quant|finance|financial|accounting|business|marketing|design|ux|ui|consulting|strategy|operations\s+research|actuarial|economics)\b/i;
+
+/** A CampusMesh job that makes its employer worth following: for students, in the US, in a professional field. */
+export function campusmeshFits(j: { title?: unknown; experienceYearsMin?: unknown; employmentType?: unknown; country?: unknown }): boolean {
+  return studentFriendly(j) && str(j.country).toUpperCase() === "US" && FIELD.test(str(j.title));
+}
+
+const READABLE: ReadonlySet<string> = new Set(["greenhouse", "lever", "ashby", "workable", "workday", "smartrecruiters", "teamtailor", "personio", "bamboohr", "jazzhr", "icims", "oracle"]);
+
+async function boardExists(ats: string, slug: string): Promise<boolean> {
+  try {
+    if (ats === "greenhouse") return Array.isArray(obj(await getJson(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(slug)}/jobs`)).jobs);
+    if (ats === "workable") return Array.isArray(obj(await getJson(`https://apply.workable.com/api/v1/widget/accounts/${encodeURIComponent(slug)}`)).jobs);
+    if (ats === "lever") return Array.isArray(await getJson(`https://api.lever.co/v0/postings/${encodeURIComponent(slug)}?mode=json&limit=1`));
+    if (ats === "ashby") return Array.isArray(obj(await getJson(`https://api.ashbyhq.com/posting-api/job-board/${encodeURIComponent(slug)}`)).jobs);
+    if (ats === "teamtailor") return /<rss[\s>]/.test(await getText(`https://${slug}/jobs.rss`));
+  } catch {
+    // Not a board.
+  }
+  return false;
+}
+
+async function campusmeshBoards(c: Pick<Collection, "id">): Promise<number> {
+  const jobs: Array<Record<string, unknown>> = [];
+  // The API answers up to 100 jobs a request whatever is asked for: the next request starts where this one ended.
+  for (let offset = 0; offset < 400_000;) {
+    const body = obj(obj(await getJson(`${CAMPUSMESH}?limit=100&offset=${offset}`, 120_000)).data);
+    if (!Array.isArray(body.jobs)) throw new Error("CampusMesh's answer has no job list; the site may have changed, so nothing was read.");
+    jobs.push(...body.jobs.map(obj));
+    offset += body.jobs.length;
+    if (jobs.length % 2000 < 100) recordCollectionCheck(c.id, `Reading CampusMesh's list: ${jobs.length.toLocaleString()} of ${Number(body.totalJobCount ?? 0).toLocaleString()} jobs…`, false);
+    if (!body.jobs.length || body.hasNext === false) break;
+  }
+  const seen = collectionPages(c.id);
+  const found = new Map<string, Found>();
+  const tryLater = new Map<string, { ats: string; slug: string; company: string }>();
+  const notRead: Record<string, number> = {};
+  let skipped = 0;
+  for (const j of jobs) {
+    if (!campusmeshFits({ ...j, country: obj(j.location).country })) { skipped++; continue; }
+    const url = str(j.primaryUrl);
+    const source = str(j.source).toLowerCase();
+    const company = str(obj(j.company).name);
+    const d = detectBoard(url);
+    if (d) { found.set(`${d.ats}:${d.slug.toLowerCase()}`, { ...d, company: company || d.slug }); continue; }
+    if (!READABLE.has(source)) { notRead[source || "other"] = (notRead[source || "other"] ?? 0) + 1; continue; }
+    // A posting on the employer's own site: its provider's board under the company's name, or for Teamtailor the
+    // careers site's own host.
+    let slug = source === "teamtailor" ? (() => { try { return new URL(url).host.toLowerCase(); } catch { return ""; } })() : company.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (!slug) continue;
+    if (!["greenhouse", "workable", "lever", "ashby", "teamtailor"].includes(source)) { notRead[source] = (notRead[source] ?? 0) + 1; continue; }
+    slug = slug.slice(0, 100);
+    tryLater.set(`${source}:${slug}`, { ats: source, slug, company });
+  }
+  let added = 0;
+  for (const f of found.values()) if (addCollectionBoard(c.id, f.ats, f.slug, f.company)) added++;
+  let tried = 0;
+  for (const [key, t] of tryLater) {
+    const page = `campusmesh:${key}`;
+    if (seen.has(page)) { const b = seen.get(page); if (b) found.set(key, { ats: t.ats as Found["ats"], slug: t.slug, company: t.company }); continue; }
+    const ok = await boardExists(t.ats, t.slug);
+    saveCollectionPage(c.id, page, ok ? key : "");
+    if (ok) { found.set(key, { ats: t.ats as Found["ats"], slug: t.slug, company: t.company }); if (addCollectionBoard(c.id, t.ats as Found["ats"], t.slug, t.company)) added++; }
+    if (++tried % 20 === 0) recordCollectionCheck(c.id, `Checking employers' own boards: ${tried} of ${tryLater.size}…`, false);
+  }
+  setCollectionNotRead(c.id, notRead);
+  recordCollectionCheck(c.id, `${(jobs.length - skipped).toLocaleString()} of CampusMesh's ${jobs.length.toLocaleString()} jobs are US student and new-graduate jobs in professional fields, from ${found.size.toLocaleString()} employer boards Jobhunt reads; ${added} new.`, true);
+  return added;
+}
+
+// ---------------------------------------------------------------- Reed
+
+// Reed's official job search API (a free key from reed.co.uk/developers, kept with the other API keys (src/lib/secrets.ts)). Reed's own listings
+// are not used: for each employer found, one of its jobs is opened to see where it is applied for, and when that is
+// the employer's own board on a provider Jobhunt reads, the board is followed. Agencies, and employers that take
+// applications on Reed itself, are skipped.
+export const REED_COLLECTION = "reed-employers";
+const REED = "https://www.reed.co.uk/api/1.0";
+const REED_DEFAULT_SEARCHES = ["software engineer", "data analyst", "data engineer", "developer", "graduate", "product manager", "analyst"];
+/** Job pages opened on one check: one per employer not seen before. */
+const REED_DETAILS = 400;
+
+async function reedBoards(c: Pick<Collection, "id">): Promise<number> {
+  const key = getSecret("reed");
+  if (!key) {
+    recordCollectionCheck(c.id, "Add a Reed API key in Settings to find UK employers through Reed.", false);
+    return 0;
+  }
+  const auth = { Authorization: `Basic ${Buffer.from(`${key}:`).toString("base64")}` };
+  const titles = getProfile().targetTitles;
+  const searches = titles.length ? titles : REED_DEFAULT_SEARCHES;
+  const seen = collectionPages(c.id);
+  // One job per employer, the newest: its page says where applications go.
+  const employers = new Map<string, { jobId: string; name: string }>();
+  for (const words of searches) {
+    for (let skip = 0; skip < 500; skip += 100) {
+      recordCollectionCheck(c.id, `Searching Reed for “${words}”…`, false);
+      const body = obj(await getJson(`${REED}/search?keywords=${encodeURIComponent(words)}&resultsToTake=100&resultsToSkip=${skip}`, 45_000, auth));
+      const results = Array.isArray(body.results) ? body.results.map(obj) : [];
+      for (const r of results) {
+        const employer = String(r.employerId ?? "");
+        const jobId = String(r.jobId ?? "");
+        if (!employer || !jobId || seen.has(`reed:${employer}`) || employers.has(employer)) continue;
+        employers.set(employer, { jobId, name: str(r.employerName) });
+      }
+      if (results.length < 100) break;
+    }
+  }
+  let added = 0, done = 0, boards = 0;
+  for (const [employer, { jobId, name }] of [...employers].slice(0, REED_DETAILS)) {
+    let board = "";
+    try {
+      const job = obj(await getJson(`${REED}/jobs/${encodeURIComponent(jobId)}`, 45_000, auth));
+      const f = detectBoard(str(job.externalUrl));
+      if (f) {
+        board = `${f.ats}:${f.slug}`;
+        boards++;
+        if (addCollectionBoard(c.id, f.ats, f.slug, name || f.slug)) added++;
+      }
+    } catch (e) {
+      if (!(e instanceof NotFound)) throw e;
+    }
+    // Remembered either way: an employer that applies through Reed or an agency's site is not opened again.
+    saveCollectionPage(c.id, `reed:${employer}`, board);
+    if (++done % 25 === 0) recordCollectionCheck(c.id, `Opening one job per employer: ${done} of ${Math.min(employers.size, REED_DETAILS)}, ${added} new boards so far…`, false);
+  }
+  recordCollectionCheck(c.id, `${employers.size.toLocaleString()} employers new to Jobhunt on Reed, ${boards} with their own board, ${added} new boards.`, true);
+  return added;
+}
 
 /** Checks every switched-on collection that has a site of its own and was last read more than a week ago. */
 export async function checkDueCollections(): Promise<number> {

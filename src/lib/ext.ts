@@ -54,6 +54,10 @@ export function jobIdForUrl(input: string): string | null {
   if (host.endsWith(".bamboohr.com") && tail(/\/careers\/(\d+)/)) return like(`bamboohr:%:${tail(/\/careers\/(\d+)/)}`);
   if (host === "apply.workable.com" && tail(/\/j\/([A-Za-z0-9]+)/)) return like(`workable:%:${tail(/\/j\/([A-Za-z0-9]+)/)}`);
   if (host.endsWith(".oraclecloud.com") && tail(/\/job\/(\d+)/)) return like(`oracle:%:${tail(/\/job\/(\d+)/)}`);
+  if (host === "jobs.smartrecruiters.com" && tail(/^\/[^/]+\/(\d+)/)) return like(`smartrecruiters:%:${tail(/^\/[^/]+\/(\d+)/)}`);
+  if (/\.jobs\.personio\.(?:de|com)$/.test(host) && tail(/\/job\/(\d+)/)) return like(`personio:%:${tail(/\/job\/(\d+)/)}`);
+  if (host.endsWith("teamtailor.com") && tail(/\/jobs\/(\d+)/)) return like(`teamtailor:%:${tail(/\/jobs\/(\d+)/)}`);
+  if (host.endsWith("jobs.nhs.uk") && tail(/\/jobadvert\/([A-Za-z0-9-]+)/)) return like(`nhs:%:${tail(/\/jobadvert\/([A-Za-z0-9-]+)/)}`);
   if (host.endsWith("amazon.jobs") && tail(/\/jobs\/(\d+)/)) return like(`amazon:%:${tail(/\/jobs\/(\d+)/)}`);
   if (host.endsWith("careers.microsoft.com") && tail(/\/job\/(\d+)/)) return like(`microsoft:%:${tail(/\/job\/(\d+)/)}`);
   if (host === "jobs.apple.com" && tail(/\/details\/([\w-]+)/)) return like(`apple:%:${tail(/\/details\/([\w-]+)/)}`);
