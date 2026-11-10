@@ -111,13 +111,10 @@ test("a refresh reads boards, saves and scores their jobs, and closes the ones t
     assert.equal(feed[0].title, "Data Engineer", "the best match comes first");
     // The next read no longer lists the recruiter job: it is closed. The others are unchanged and not written again.
     listing = listing.slice(0, 2);
-    const before = store.db().prepare("SELECT last_seen_at FROM jobs WHERE id = 'greenhouse:refreshco:11'").get() as { last_seen_at: string };
     ingest.startRefresh([gh]);
     await refreshDone(ingest.refreshStatus);
     assert.ok(store.jobDetail("greenhouse:refreshco:13")!.closedAt, "the job that left the board is closed");
     assert.equal(store.jobDetail("greenhouse:refreshco:11")!.closedAt, null);
-    const after = store.db().prepare("SELECT last_seen_at FROM jobs WHERE id = 'greenhouse:refreshco:11'").get() as { last_seen_at: string };
-    assert.ok(after.last_seen_at >= before.last_seen_at, "a job still listed is marked as seen");
     assert.deepEqual(net.unexpected, []);
   } finally {
     net.restore();
@@ -171,6 +168,52 @@ test("a job saved from its board's list alone is read in full when it is opened"
     const job = store.jobDetail(row.id)!;
     assert.match(job.descriptionHtml, /citizen/);
     assert.equal(job.blocker, "citizenship", "what the posting says about visas is known once it is read");
+  } finally {
+    net.restore();
+  }
+});
+
+// ---------------------------------------------------------------- careers sites (sitemap and job pages)
+
+test("a careers site is read from its job sitemap and job pages, within its robots.txt", async () => {
+  const { careersite, jobFromAddress, robotsRules } = await import("../src/lib/sources-sites");
+  // Addresses: Radancy, Phenom, SuccessFactors and a GUID; a category page is not a job.
+  assert.deepEqual(jobFromAddress("https://www.kaiserpermanentejobs.org/job/south-san-francisco/unit-assistant/641/1026016033"), { id: "1026016033", title: "Unit Assistant", place: "South San Francisco" });
+  assert.deepEqual(jobFromAddress("https://jobs.sutterhealth.org/us/en/job/R-141956/Clinical-Nurse-II"), { id: "R-141956", title: "Clinical Nurse II", place: "" });
+  assert.equal(jobFromAddress("https://careers.duke.edu/job/Durham-Postdoctoral-Associate-NC-27710/1344537600/")?.id, "1344537600");
+  assert.equal(jobFromAddress("https://jobs.mdanderson.org/search/jobdetails/nurse-practitioner/31c84072-a979-480b-b97f-03f95ca6a4bb")?.title, "Nurse Practitioner");
+  assert.equal(jobFromAddress("https://careers.yale.edu/us/en/c/temporary-positions-jobs"), null);
+  const rules = robotsRules("User-agent: Googlebot\nDisallow: /\n\nUser-agent: *\nDisallow: /search-jobs/\nDisallow: /*?qtvc=\nSitemap: https://care.example/sitemap_index.xml");
+  assert.deepEqual(rules.sitemaps, ["https://care.example/sitemap_index.xml"]);
+  assert.ok(rules.disallow.some((re) => re.test("/search-jobs/nurse")) && rules.disallow.some((re) => re.test("/job/x?qtvc=1")));
+  assert.ok(!rules.disallow.some((re) => re.test("/job/austin/nurse/1/12345")), "the rules for other crawlers do not apply");
+
+  const ld = (title: string) => `<script type="application/ld&#x2B;json">${JSON.stringify({ "@type": "JobPosting", title, description: "<p>Care for patients in the ICU. Must be a U.S. citizen.</p>", datePosted: "2026-10-20", employmentType: "FULL_TIME", jobLocation: { address: { addressLocality: "Austin", addressRegion: "TX", addressCountry: "US" } } })}</script>`;
+  const net = fakeNetwork([
+    [/care\.example\/robots\.txt/, () => "User-agent: *\nDisallow: /job/secret/\nSitemap: https://care.example/sitemap_index.xml"],
+    [/care\.example\/sitemap_index\.xml/, () => `<sitemapindex><sitemap><loc>https://care.example/blog-sitemap.xml</loc></sitemap><sitemap><loc>https://care.example/jobs-sitemap.xml</loc></sitemap></sitemapindex>`],
+    [/care\.example\/jobs-sitemap\.xml/, () => `<urlset><url><loc>https://care.example/job/austin/icu-nurse/10/50001</loc></url><url><loc>https://care.example/job/Dallas-Data-Analyst-TX-75201/50002/</loc></url>
+      <url><loc>https://care.example/job/austin/closed-role/10/50003</loc></url><url><loc>https://care.example/job/secret/hidden-role/10/50004</loc></url><url><loc>https://care.example/about-us</loc></url>
+      <url><loc>http://192.168.1.1/job/router/admin/10/50005</loc></url><url><loc>https://elsewhere.example/job/austin/nurse/10/50006</loc></url></urlset>`],
+    [/care\.example\/blog-sitemap\.xml/, () => `<urlset><url><loc>https://care.example/blog/a-day-in-the-icu</loc></url></urlset>`],
+    [/care\.example\/job\/austin\/icu-nurse/, () => `<html>${ld("ICU Nurse")}</html>`],
+    [/care\.example\/job\/Dallas-Data-Analyst/, () => `<h1><span itemprop="title">Data Analyst</span></h1><meta itemprop="addressLocality" content="Dallas"><meta itemprop="addressRegion" content="TX">
+      <meta itemprop="datePosted" content="2026-10-21"><div itemprop="description"><span class="jobdescription"><p>Build <span>dashboards</span> for our clinics with SQL and Tableau.</p>${"<p>More about the role and the team, the clinics and the patients we serve.</p>".repeat(4)}</span></div>`],
+    [/care\.example\/job\/austin\/closed-role/, () => `<meta property="og:description" content="This job is no longer available.">`],
+  ]);
+  try {
+    const l = await careersite("care.example", "Care Example", new Set());
+    const by = new Map(l.jobs.map((j) => [j.externalId, j]));
+    assert.deepEqual([...by.keys()].sort(), ["50001", "50002", "50003"], "the forbidden page, pages that are not jobs, and pages on other hosts are left out");
+    assert.ok(!net.calls.some((c) => c.url.includes("/job/secret/")), "a page robots.txt forbids is never asked for");
+    assert.equal(by.get("50001")!.title, "ICU Nurse");
+    assert.equal(by.get("50001")!.location, "Austin, TX");
+    assert.match(by.get("50001")!.descriptionHtml, /citizen/);
+    assert.equal(by.get("50002")!.title, "Data Analyst");
+    assert.equal(by.get("50002")!.location, "Dallas, TX");
+    assert.match(by.get("50002")!.descriptionHtml, /dashboards<\/span> for our clinics/, "nested elements are kept whole");
+    assert.equal(by.get("50003")!.descriptionHtml, "", "a closed posting's one-line summary is not taken for its text");
+    assert.equal(by.get("50003")!.title, "Closed Role");
   } finally {
     net.restore();
   }

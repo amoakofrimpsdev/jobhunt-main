@@ -9,7 +9,7 @@ import { isDocumentKind, saveDocument } from "./documents";
 import { listResumes, resumeFits } from "./resumes";
 import { dataDir, db, feed, getProfile, jobDetail, jobScoringFacts, track } from "./store";
 import { skillName } from "./taxonomy";
-import { DOCUMENT_LABEL, LEVEL_LABEL, REGION_LABEL, TRACK_STATUSES, type DocumentKind, type JobCard, type Region, type TrackStatus } from "./types";
+import { countLabel, DOCUMENT_LABEL, LEVEL_LABEL, REGION_LABEL, TRACK_STATUSES, type DocumentKind, type JobCard, type Region, type TrackStatus } from "./types";
 
 type Args = Record<string, unknown>;
 
@@ -101,7 +101,7 @@ export function runTool(tool: string, args: Args): string {
         limit: Math.max(1, Math.min(30, Number(args.limit) || 12)),
       });
       if (!r.jobs.length) return "No open job in Jobhunt matches that.";
-      return `${r.total.toLocaleString()} jobs match; the first ${r.jobs.length}:\n${r.jobs.map(jobLine).join("\n")}`;
+      return `${countLabel(r.total)} jobs match; the first ${r.jobs.length}:\n${r.jobs.map(jobLine).join("\n")}`;
     }
     case "get_job": {
       const id = str(args.job_id);

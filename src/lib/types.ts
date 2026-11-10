@@ -1,7 +1,7 @@
 /** The last four are single employers that run a careers site of their own. "manual" is not a provider: it marks
  *  jobs the person saved from a page in their browser. */
 export type Ats = "greenhouse" | "lever" | "ashby" | "workday" | "workable" | "icims" | "oracle" | "jazzhr" | "bamboohr" | "smartrecruiters"
-  | "personio" | "teamtailor" | "amazon" | "microsoft" | "apple" | "meta" | "nhs" | "manual";
+  | "personio" | "teamtailor" | "amazon" | "microsoft" | "apple" | "meta" | "nhs" | "careersite" | "manual";
 /** Employers read from their own careers site: one board each. */
 export const COMPANY_SITES: Array<{ ats: Ats; slug: string; name: string; host: string; uk?: boolean }> = [
   { ats: "amazon", slug: "us", name: "Amazon", host: "amazon.jobs" },
@@ -15,8 +15,11 @@ export const ATS_LABEL: Record<Ats, string> = {
   greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workday: "Workday", workable: "Workable", icims: "iCIMS",
   oracle: "Oracle", jazzhr: "JazzHR", bamboohr: "BambooHR", smartrecruiters: "SmartRecruiters", personio: "Personio",
   teamtailor: "Teamtailor", amazon: "Amazon Jobs", microsoft: "Microsoft Careers", apple: "Apple Jobs", meta: "Meta Careers",
-  nhs: "NHS Jobs", manual: "Browser",
+  nhs: "NHS Jobs", careersite: "Careers site", manual: "Browser",
 };
+/** The feed counts matching jobs up to this many; past it, it shows "10,000+". */
+export const COUNT_CAP = 10_000;
+export const countLabel = (n: number) => (n > COUNT_CAP ? `${COUNT_CAP.toLocaleString()}+` : n.toLocaleString());
 export type WorkModel = "remote" | "hybrid" | "onsite";
 export type Level = "intern" | "entry" | "mid" | "senior" | "staff" | "manager" | "director" | "exec";
 export type PayPeriod = "year" | "month" | "hour";
