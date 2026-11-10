@@ -2,7 +2,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { COMPANY_SITES, EMPTY_PROFILE, type Ats, type Board, type Collection, type JobCard, type JobDetail, type Match, type Profile, type RawJob, type Region, type TrackStatus } from "./types";
+import { COMPANY_SITES, COUNT_CAP, EMPTY_PROFILE, type Ats, type Board, type Collection, type JobCard, type JobDetail, type Match, type Profile, type RawJob, type Region, type TrackStatus } from "./types";
 import { skillName } from "./taxonomy";
 import { ukSponsorLikely } from "./company";
 import { countryOf } from "./parse/facts";
@@ -172,6 +172,10 @@ DROP INDEX IF EXISTS jobs_light;
 DROP INDEX IF EXISTS jobs_feed;
 CREATE INDEX IF NOT EXISTS jobs_feed2 ON jobs (closed_at, board_id, id, company, title, location, department, country,
   posted_at, first_seen_at, seen_new, blocker, work_model, level, years_min, family, h1b_filings, e_verify, cap_exempt, uk_sponsor, pay_min, skills);
+-- The feed's own index: only what it filters and sorts on, half the size of the one above, so a feed of a million
+-- jobs reads a few hundred megabytes less. jobs_feed2 stays for scoring, which needs titles and skills.
+CREATE INDEX IF NOT EXISTS jobs_feed3 ON jobs (closed_at, board_id, id, company, country, blocker, posted_at, first_seen_at,
+  seen_new, work_model, level, years_min, h1b_filings, e_verify, cap_exempt, uk_sponsor, pay_min);
 `;
 
 /**
@@ -575,7 +579,7 @@ export type JobRow = {
 /** The ids (as the board gives them) of one board's postings whose full text is already held. */
 export function heldPostingIds(board: Pick<Board, "id" | "ats" | "slug">): Set<string> {
   const prefix = `${board.ats}:${board.slug}:`;
-  const rows = db().prepare("SELECT id FROM jobs WHERE board_id = ? AND description_html != ''").all(board.id) as Array<{ id: string }>;
+  const rows = db().prepare("SELECT id FROM jobs WHERE board_id = ? AND length(description_html) > 0").all(board.id) as Array<{ id: string }>;
   return new Set(rows.filter((r) => r.id.startsWith(prefix)).map((r) => r.id.slice(prefix.length)));
 }
 
@@ -625,8 +629,7 @@ export function saveBoardListing(boardId: number, jobs: JobRow[], closeMissing =
   // Most postings on a board are the same from one read to the next. One that reads exactly as it is held is only
   // marked as still listed: writing its text again, and scoring it again, is most of the work of a refresh.
   const same = d.prepare(`SELECT 1 FROM jobs WHERE id = ? AND closed_at IS NULL AND title = ? AND company = ? AND location = ? AND url = ?
-    AND description_html = ? AND skills = ? AND blocker IS ? AND sponsorship IS ? AND level IS ? AND pay_min IS ? AND posted_at IS ?`);
-  const still = d.prepare("UPDATE jobs SET last_seen_at = ? WHERE id = ?");
+    AND octet_length(description_html) = ? AND skills = ? AND blocker IS ? AND sponsorship IS ? AND level IS ? AND pay_min IS ? AND posted_at IS ?`);
   return transaction(() => {
     let added = 0;
     const seen = new Set<string>();
@@ -634,10 +637,8 @@ export function saveBoardListing(boardId: number, jobs: JobRow[], closeMissing =
     for (const j of jobs) {
       if (seen.has(j.id)) continue;
       seen.add(j.id);
-      if (known.has(j.id) && same.get(j.id, j.title, j.company, j.location, j.url, j.descriptionHtml, JSON.stringify(j.skills), j.blocker, j.sponsorship, j.level, j.payMin, j.postedAt)) {
-        still.run(now, j.id);
-        continue;
-      }
+      // Comparing the text's size, not the text, keeps the posting's text unread: the facts compared come from it anyway.
+      if (known.has(j.id) && same.get(j.id, j.title, j.company, j.location, j.url, Buffer.byteLength(j.descriptionHtml), JSON.stringify(j.skills), j.blocker, j.sponsorship, j.level, j.payMin, j.postedAt)) continue;
       written.add(j.id);
       if (!known.has(j.id)) added++;
       upsert.run(j.id, boardId, j.ats, j.url, j.applyUrl, j.title, j.company, j.location, j.country, j.workModel,
@@ -649,13 +650,23 @@ export function saveBoardListing(boardId: number, jobs: JobRow[], closeMissing =
       if (known.has(j.id)) unscore.run(j.id);
     }
     // Postings that are still on the board but were not read again: they stay open, and one that had closed reopens.
-    const touch = d.prepare("UPDATE jobs SET last_seen_at = ?, closed_at = NULL WHERE id = ?");
-    for (const id of stillListed) { if (!seen.has(id)) { seen.add(id); touch.run(now, id); } }
+    // Only a closed one is written: rewriting every open row (its whole text) on each refresh took minutes.
+    const reopen = d.prepare("UPDATE jobs SET closed_at = NULL WHERE id = ? AND closed_at IS NOT NULL");
+    for (const id of stillListed) { if (!seen.has(id)) { seen.add(id); reopen.run(id); } }
     const close = d.prepare("UPDATE jobs SET closed_at = ? WHERE id = ? AND closed_at IS NULL");
     let closed = 0;
     if (closeMissing) for (const id of known) if (!seen.has(id)) closed += Number(close.run(now, id).changes);
     return { added, closed, written };
   });
+}
+
+/**
+ * Deletes up to `batch` jobs that closed before `before` and that are not tracked and have no saved documents; returns
+ * how many. Called a batch at a time so the app keeps answering. Scores and search entries go with them.
+ */
+export function deleteClosedJobs(before: string, batch = 2000): number {
+  return Number(db().prepare(`DELETE FROM jobs WHERE rowid IN (SELECT rowid FROM jobs WHERE closed_at < ?
+    AND id NOT IN (SELECT job_id FROM applications) AND id NOT IN (SELECT job_id FROM documents) LIMIT ?)`).run(before, batch).changes);
 }
 
 /** What the scorer needs from every open posting. */
@@ -804,16 +815,17 @@ const statsCache = globalThis as unknown as { __jobhuntStats?: { at: number; sta
 
 function feedStats(now: number): Row {
   const cached = statsCache.__jobhuntStats;
-  if (cached && now - cached.at < 30_000) return cached.stats;
+  // Five minutes: these four numbers move slowly, and on a million jobs they take seconds to count from cold.
+  if (cached && now - cached.at < 300_000) return cached.stats;
   const d = db();
   const stats = d.prepare(`SELECT COUNT(*) AS open,
       SUM(CASE WHEN ${POSTED} >= ? THEN 1 ELSE 0 END) AS fresh,
       SUM(CASE WHEN j.blocker IS NOT NULL THEN 1 ELSE 0 END) AS blocked,
       COUNT(DISTINCT j.board_id) AS employers
-    FROM jobs j WHERE j.closed_at IS NULL AND j.board_id IN (SELECT id FROM active_boards)`).get(new Date(now - DAY).toISOString()) as Row;
+    FROM jobs j INDEXED BY jobs_feed3 WHERE j.closed_at IS NULL AND j.board_id IN (SELECT id FROM active_boards)`).get(new Date(now - DAY).toISOString()) as Row;
   // Both sides are read from their small indexes. Starting from the scores instead means fetching each strong job's
   // full row (its posting text) to see whether it is open, which takes seconds and holds everything else up.
-  stats.strong = (d.prepare(`SELECT COUNT(*) AS n FROM jobs j INDEXED BY jobs_feed2 JOIN matches m ON m.job_id = j.id
+  stats.strong = (d.prepare(`SELECT COUNT(*) AS n FROM jobs j INDEXED BY jobs_feed3 JOIN matches m ON m.job_id = j.id
     WHERE j.closed_at IS NULL AND j.board_id IN (SELECT id FROM active_boards) AND m.score >= 80`).get() as { n: number }).n;
   statsCache.__jobhuntStats = { at: now, stats };
   return stats;
@@ -873,14 +885,15 @@ export function feed(f: FeedFilter): Feed {
   const d = db();
   // Named outright: left to itself the database looks the score up in the full match rows, which is the slow way.
   const scores = "LEFT JOIN matches m ON m.job_id = j.id";
-  const from = `FROM jobs j ${scores} WHERE ${where.join(" AND ")}`;
+  const from = `FROM jobs j INDEXED BY jobs_feed3 ${scores} WHERE ${where.join(" AND ")}`;
   // Counting needs the scores only when the filter asks for one.
   // Counting walks every open job, so a count is kept for half a minute: paging and the redraws during a refresh
   // ask for the same one again and again.
   const countKey = `${f.minScore ? "m" : ""}|${where.join("&")}|${args.join("\u0001")}`;
   const counted = countCache.get(countKey);
   const total = counted && Date.now() - counted.at < 30_000 ? counted.n
-    : (d.prepare(`SELECT COUNT(*) AS n FROM jobs j ${f.minScore ? `${scores} ` : ""}WHERE ${where.join(" AND ")}`).get(...args) as { n: number }).n;
+    // Counting stops just past COUNT_CAP: past that the number only says "lots", and counting a million jobs takes seconds.
+    : (d.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM jobs j INDEXED BY jobs_feed3 ${f.minScore ? `${scores} ` : ""}WHERE ${where.join(" AND ")} LIMIT ${COUNT_CAP + 1})`).get(...args) as { n: number }).n;
   if (!counted || Date.now() - counted.at >= 30_000) {
     if (countCache.size > 200) countCache.clear();
     countCache.set(countKey, { at: Date.now(), n: total });

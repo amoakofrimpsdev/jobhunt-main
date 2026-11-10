@@ -9,6 +9,7 @@ import { decodeEntities } from "./text";
 import type { Listing } from "./sources";
 import type { Ats, RawJob, WorkModel } from "./types";
 import { nhs, nhsDetail, personio, smartrecruiters, smartrecruitersDetail, teamtailor } from "./sources-uk";
+import { careersite, careersiteDetail } from "./sources-sites";
 
 /** Postings read in full on one run of one board (one request each). */
 const DETAILS_PER_RUN = 60;
@@ -18,7 +19,7 @@ const WORK_MS = 150_000;
 /** One employer's whole careers site holds thousands of postings: it may read more of them, for longer, on a run. */
 export const SITE_LIMITS = { details: 600, ms: 20 * 60_000 };
 
-const SLOW: ReadonlySet<Ats> = new Set<Ats>(["workday", "icims", "oracle", "jazzhr", "bamboohr", "amazon", "microsoft", "apple", "meta", "smartrecruiters", "nhs"]);
+const SLOW: ReadonlySet<Ats> = new Set<Ats>(["workday", "icims", "oracle", "jazzhr", "bamboohr", "amazon", "microsoft", "apple", "meta", "smartrecruiters", "nhs", "careersite"]);
 /** Providers that serve every employer from one host: their boards are read one after another, not side by side. */
 export const SHARED_HOST: ReadonlySet<Ats> = new Set<Ats>(["smartrecruiters"]);
 /** A provider that needs many requests for one board. Its boards are read once a day, not on every refresh. */
@@ -75,8 +76,9 @@ type Ld = Record<string, unknown>;
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : v === undefined || v === null ? [] : [v]);
 const said = (v: unknown): string => { const t = text(v); return /^unavailable$/i.test(t) ? "" : t; };
 
-function jobPostingOf(html: string): Ld | null {
-  for (const m of html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+export function jobPostingOf(html: string): Ld | null {
+  // Some sites write the "+" as an HTML entity in the attribute ("application/ld&#x2B;json").
+  for (const m of html.matchAll(/<script[^>]*type=["']application\/ld(?:\+|&#x2B;|&#43;)json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     let d: unknown;
     try { d = JSON.parse(m[1].trim()); } catch { continue; }
     for (const x of [...list(d), ...list(obj(d)["@graph"])]) {
@@ -88,7 +90,7 @@ function jobPostingOf(html: string): Ld | null {
 }
 
 /** The posting's own facts laid over what the list says about it. */
-function withJobPosting(b: RawJob, ld: Ld, weakCompany: boolean): RawJob {
+export function withJobPosting(b: RawJob, ld: Ld, weakCompany: boolean): RawJob {
   const places: string[] = [];
   let country: string | null = null;
   for (const loc of list(ld.jobLocation)) {
@@ -606,6 +608,7 @@ export function fetchOther(ats: Ats, slug: string, company: string, known: Set<s
     case "personio": return personio(slug, company);
     case "teamtailor": return teamtailor(slug, company);
     case "nhs": return nhs(known);
+    case "careersite": return careersite(slug, company, known);
     case "amazon": return amazon(company, known);
     case "microsoft": return microsoft(company, known);
     case "apple": return apple(company, known);
@@ -628,7 +631,7 @@ export async function fetchPosting(ats: Ats, slug: string, company: string, from
   const detail: Detail | null =
     ats === "workday" ? workdayDetail(slug, company) : ats === "icims" ? pageDetail(slug, company, "?in_iframe=1") : ats === "jazzhr" ? pageDetail(slug, company)
     : ats === "oracle" ? oracleDetail(slug) : ats === "bamboohr" ? bamboohrDetail(slug) : ats === "microsoft" ? microsoftDetail : ats === "apple" ? appleDetail
-    : ats === "smartrecruiters" ? smartrecruitersDetail(slug) : ats === "nhs" ? nhsDetail : null;
+    : ats === "smartrecruiters" ? smartrecruitersDetail(slug) : ats === "nhs" ? nhsDetail : ats === "careersite" ? careersiteDetail(company) : null;
   if (!detail) return null;
   const job = await detail({ id: fromList.externalId, fromList });
   return job && job.descriptionHtml ? job : null;

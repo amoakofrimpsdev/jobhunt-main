@@ -13,6 +13,10 @@ DROP INDEX IF EXISTS jobs_light;
 DROP INDEX IF EXISTS jobs_feed;
 CREATE INDEX IF NOT EXISTS jobs_feed2 ON jobs (closed_at, board_id, id, company, title, location, department, country,
   posted_at, first_seen_at, seen_new, blocker, work_model, level, years_min, family, h1b_filings, e_verify, cap_exempt, uk_sponsor, pay_min, skills);
+-- The feed's own index: only what it filters and sorts on, half the size of the one above, so a feed of a million
+-- jobs reads a few hundred megabytes less. jobs_feed2 stays for scoring, which needs titles and skills.
+CREATE INDEX IF NOT EXISTS jobs_feed3 ON jobs (closed_at, board_id, id, company, country, blocker, posted_at, first_seen_at,
+  seen_new, work_model, level, years_min, h1b_filings, e_verify, cap_exempt, uk_sponsor, pay_min);
 `;
 
 const MATCHES = `
@@ -58,7 +62,7 @@ function pendingSteps(file) {
     const jobColumns = d.prepare("PRAGMA table_info(jobs)").all().map((c) => c.name);
     const steps = [];
     // Older databases still need columns only the app adds; it builds this index itself after adding them.
-    if (jobColumns.includes("uk_sponsor") && !has("jobs_feed2")) steps.push({ id: "feed", label: "Building the job list index" });
+    if (jobColumns.includes("uk_sponsor") && (!has("jobs_feed2") || !has("jobs_feed3"))) steps.push({ id: "feed", label: "Building the job list index" });
     if (has("matches")) {
       const cols = d.prepare("PRAGMA table_info(matches)").all().map((c) => c.name);
       const sql = d.prepare("SELECT sql FROM sqlite_master WHERE name = 'matches'").get()?.sql ?? "";

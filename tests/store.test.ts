@@ -172,3 +172,17 @@ test("recommended order lifts new postings and lowers ones that have been up for
   // A much weaker match from today does not jump a perfect one from last week.
   assert.ok(80 + store.freshness(0) < 100 + store.freshness(10 * day));
 });
+
+test("jobs closed long ago are deleted, unless tracked or written for", () => {
+  const old = { id: store.addBoard("greenhouse", "oldco", "Oldco"), ats: "greenhouse" as const, slug: "oldco" };
+  store.saveBoardListing(old.id, ["1", "2", "3", "4"].map((id) => ingest.toJobRow(old, raw(id, "Data Analyst"))));
+  store.saveBoardListing(old.id, [ingest.toJobRow(old, raw("4", "Data Analyst"))]);
+  store.db().prepare("UPDATE jobs SET closed_at = '2026-01-01T00:00:00.000Z' WHERE board_id = ? AND closed_at IS NOT NULL").run(old.id);
+  store.track("greenhouse:oldco:2", "applied");
+  store.db().prepare("INSERT INTO documents (job_id, kind, content, source, created_at, updated_at) VALUES ('greenhouse:oldco:3', 'cover', 'x', 'test', '', '')").run();
+  assert.equal(store.deleteClosedJobs("2026-02-01T00:00:00.000Z", 1), 1);
+  assert.equal(store.deleteClosedJobs("2026-02-01T00:00:00.000Z"), 0);
+  const left = (store.db().prepare("SELECT id FROM jobs WHERE board_id = ? ORDER BY id").all(old.id) as Array<{ id: string }>).map((r) => r.id);
+  assert.deepEqual(left, ["greenhouse:oldco:2", "greenhouse:oldco:3", "greenhouse:oldco:4"]);
+  assert.equal(store.tracked().filter((t) => t.id === "greenhouse:oldco:2").length, 1, "the tracked job keeps its application");
+});

@@ -8,7 +8,7 @@ import { JobDrawer } from "@/components/JobDrawer";
 import { api, REFRESHED_EVENT } from "@/lib/client";
 import type { RefreshStatus } from "@/lib/ingest";
 import type { Feed } from "@/lib/store";
-import { ATS_LABEL, LEVEL_LABEL, REGION_LABEL, type Ats, type Level, type Region, type TrackStatus, type WorkModel } from "@/lib/types";
+import { ATS_LABEL, COUNT_CAP, countLabel, LEVEL_LABEL, REGION_LABEL, type Ats, type Level, type Region, type TrackStatus, type WorkModel } from "@/lib/types";
 
 type Filters = {
   q: string;
@@ -32,7 +32,7 @@ type Filters = {
 // Boards where applying is one page with no account to create. Workday, iCIMS and Oracle ask for a sign-in and
 // several steps.
 const QUICK_APPLY: Ats[] = ["greenhouse", "lever", "ashby", "workable", "smartrecruiters", "personio", "teamtailor"];
-const BOARDS: Ats[] = ["greenhouse", "lever", "ashby", "workable", "workday", "icims", "oracle", "bamboohr", "jazzhr", "smartrecruiters", "personio", "teamtailor", "amazon", "microsoft", "apple", "meta", "nhs"];
+const BOARDS: Ats[] = ["greenhouse", "lever", "ashby", "workable", "workday", "icims", "oracle", "bamboohr", "jazzhr", "smartrecruiters", "personio", "teamtailor", "amazon", "microsoft", "apple", "meta", "nhs", "careersite"];
 const sameSet = (a: Ats[], b: Ats[]) => a.length === b.length && a.every((x) => b.includes(x));
 
 const DEFAULTS: Filters = { q: "", work: [], level: [], days: 0, sort: "recommended", region: null, hideBlocked: null, h1b: false, everify: false, capExempt: false, pay: false, minScore: 0, ats: [] };
@@ -219,7 +219,7 @@ export default function Home() {
             )}
           </Stat>
           <Stat value={(data?.newToday ?? 0).toLocaleString()} label="New in the last 24 hours" className="bg-lavender text-ink" />
-          <Stat value={(data?.total ?? 0).toLocaleString()} label="Match your filters" className="bg-ochre text-ink" />
+          <Stat value={countLabel(data?.total ?? 0)} label="Match your filters" className="bg-ochre text-ink" />
           <div className="relative overflow-hidden rounded-xl bg-teal p-4 text-white sm:p-6">
             <span className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-mint/20" />
             <div className="relative flex items-center gap-2 text-[13px] font-semibold text-mint"><ShieldCheck size={16} /> Sponsorship lens</div>
@@ -358,7 +358,7 @@ export default function Home() {
         {data && data.jobs.length < data.total && (
           <div className="mt-8 text-center">
             <button className="btn btn-secondary" onClick={() => setLimit((n) => n + PAGE)}>
-              Show more · {(data.total - data.jobs.length).toLocaleString()} left
+              Show more{data.total <= COUNT_CAP && ` · ${(data.total - data.jobs.length).toLocaleString()} left`}
             </button>
           </div>
         )}

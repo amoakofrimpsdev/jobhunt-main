@@ -6,7 +6,7 @@ import { parseStatements, visaBlocker } from "./parse/statements";
 import { Maintenance } from "./http";
 import { fetchBoard, isSlowAts } from "./sources";
 import { fetchPosting, SHARED_HOST } from "./sources-more";
-import { getMeta, getProfile, jobsForScoring, listBoards, profileReady, recordBoardRun, saveBoardListing, saveMatches, setMeta, type JobRow, heldPostingIds, unreadPosting, activeBoardIds } from "./store";
+import { getMeta, getProfile, jobsForScoring, listBoards, profileReady, recordBoardRun, saveBoardListing, saveMatches, setMeta, type JobRow, heldPostingIds, unreadPosting, activeBoardIds, deleteClosedJobs } from "./store";
 import { familyOfTitle, scanSkills } from "./taxonomy";
 import { htmlToText, sanitizeHtml } from "./text";
 import type { Board, Match, RawJob } from "./types";
@@ -78,6 +78,16 @@ let scoreAgain: boolean | null = null;
  * with no score yet. The work is done a page at a time with a pause between pages, so the screens and the browser
  * extension are answered while it runs. With no usable profile the feed is simply unscored.
  */
+/** Jobs closed for this long are deleted unless tracked or written for; without this the database only grows. */
+const KEEP_CLOSED_DAYS = 30;
+
+async function forgetClosedJobs(): Promise<void> {
+  const before = new Date(Date.now() - KEEP_CLOSED_DAYS * 86_400_000).toISOString();
+  try {
+    while (deleteClosedJobs(before) > 0) await new Promise((r) => setImmediate(r));
+  } catch { /* tried again after the next full refresh */ }
+}
+
 export function rescore(everything = false): Promise<number> {
   if (scoring) {
     // One pass at a time: a request that arrives meanwhile runs after it (a full one wins over a partial one).
@@ -245,6 +255,7 @@ export function startRefresh(boardIds?: number[]): RefreshStatus {
       setMeta("refresh", status);
       if (!boardIds) {
         setMeta("lastFullRefresh", status.finishedAt);
+        void forgetClosedJobs();
         // Once a week each collection's own site is read for employers it has added; their boards are then read.
         void import("./collections").then((m) => m.checkDueCollections()).then((added) => {
           if (added > 0) startRefresh(listBoards().filter((b) => b.active && !b.lastRunAt).map((b) => b.id));
